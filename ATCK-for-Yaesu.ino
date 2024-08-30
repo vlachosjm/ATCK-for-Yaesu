@@ -41,7 +41,8 @@
 #define TFT_MOSI 11  // Data out
 #define TFT_SCLK 12  // Clock out
 
-#define TFT_TEAL 0x0410  // Define the Teal color fir the TFT display
+#define TFT_TEAL 0x0410   // Define the Teal color for the TFT display
+#define TFT_EBONY 0x52EA  // Define the Ebony color for the TFT display
 
 Preferences preferences;  //Define the oncject to hadndle the read/write to the on-board non-volatile memory
 
@@ -60,7 +61,6 @@ boolean Tuned = false;  // True if in a specific range around the last tuned fre
 
 unsigned long InfoDelay;  // The application should wait until that time to show another info on the upper screen (in milliseconds from the start of the initilization of the ATCK device)
 int Message = 0;          // Each info message has a number. We keep here the number of the message that shows on the display
-int BigStatus = 1;        // If 1, the status changes are shown in big characters too.
 
 long CurrentFrequencyTX = 0;   //The Current frequency of the VFO that has the TX
 long LastTunedFrequency = 0;   //The Last Tuned Frequency for the external tuner.
@@ -73,11 +73,10 @@ int MAINSUBRX = 0;    //Main (0) or sub (1) for receive
 int SelectedFilter;   //The selected filter. Default = 0 (None)
 int TransmitAntenna;  //Number of the antenna used for transmition
 
-int PreviousPower = -1;              //The RF power level
-int PreviousCompressor = -1;         //The status of the compressor (1=on, 0=off)
-int PreviousEQ = -1;                 //The EQ status
-int PreviousKeyer = -1;              //The keyer status (1=on, 0=off)
-boolean ForceStatusRefresh = false;  //When true will force a status refresh whithout screen delays
+int PreviousPower = -1;       //The RF power level
+int PreviousCompressor = -1;  //The status of the compressor (1=on, 0=off)
+int PreviousEQ = -1;          //The EQ status
+int PreviousKeyer = -1;       //The keyer status (1=on, 0=off)
 
 int32_t encoder_position1;  //The value of the first encoder
 int32_t encoder_position2;  //The value of the second encoder
@@ -85,7 +84,7 @@ int32_t encoder_position3;  //The value of the third encoder
 int32_t encoder_position4;  //The value of the fourth encoder
 
 
-uint16_t TFT_BACKGROUND = TFT_TEAL;    //This variable holds the backgournd color of the disaplay
+uint16_t TFT_BACKGROUND = TFT_EBONY;   //This variable holds the backgournd color of the disaplay
 uint16_t TFT_FOREGROUND = TFT_YELLOW;  //This variable holds the foreground color of the disaplay
 
 //Loading the menu data on a constant array
@@ -94,14 +93,14 @@ const char* SubMenus[18][3] = { { "1", "100Hz", "100" }, { "1", "250Hz", "250" }
 unsigned long ONAirStartTime;  //Marks the time that on air activity started
 long ONAirTime;                //Actual time on air in minutes
 
-int PPO;  //Peak power out
+int PPO;  //Peak Power Out
 
 volatile unsigned long start;  //This value is used when we are in a menu, to mark the the start of inactivity time before we auto-exit the menu
 
 int ExtendedParameter1;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency
-int ExtendedParameter2;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level
-int ExtendedParameter3;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level
-int ExtendedParameter4;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level
+int ExtendedParameter2;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency
+int ExtendedParameter3;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency
+int ExtendedParameter4;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency
 
 void setup() {
   //seting the pin mode of the pins that we use
@@ -110,7 +109,7 @@ void setup() {
   pinMode(Button, INPUT_PULLUP);
   pinMode(TXGND, INPUT_PULLUP);
 
-  //Read the sotres preferences
+  //Read the stored preferences
   preferences.begin("ATCK", false);
   ExtendedParameter1 = preferences.getInt("Parameter1", 0);
   ExtendedParameter2 = preferences.getInt("Parameter2", 0);
@@ -156,7 +155,7 @@ void setup() {
   delay(2000);
 
   tft.setTextColor(TFT_YELLOW);
-  TFT_BACKGROUND = TFT_TEAL;
+  TFT_BACKGROUND = TFT_EBONY;
 
   attachInterrupt(digitalPinToInterrupt(TXGND), Interupt1, CHANGE);  //Setup the interrupt routine to call and the condition to call it
 }
@@ -164,7 +163,7 @@ void setup() {
 void loop() {
   char a;                            //Generic character string
   String Result;                     //Generic results storage
-  int LockStatus;                    //Lock status
+  String LockStatus;                 //Lock status
   boolean ButtonShortPress = false;  // Checks in the tune button has been pressed for a long time (>1 sec?)
   unsigned long ButtonPressTime;     //The point in time where the button is pressed
   String TimeText;                   //To hold the on air time string
@@ -221,7 +220,7 @@ void loop() {
     Tuned = IsInTunedFrequencies(CurrentFrequencyTX);  //Check if we are still in tuned range
 
     //Here we see if the Tune button is longpressed and need to tune, or shortpressed. I don't have an action assigned to short press
-    if (digitalRead(Button) == 0) {  //if the button is pressed...
+    if (digitalRead(Button) == 0) {  //if the tune button is pressed...
       ButtonPressTime = millis();    //Mark the time that the button was pressed...
 
       while (ButtonPressTime + 1000 > millis()) {  //...and we wait for 1000ms...
@@ -246,7 +245,7 @@ void loop() {
       delay(CommandDelay);
       Relay.SET_RLY0(I2C_REL_ADD, HIGH);  //Disconnect the PTT button (Stop transmition due to Mic)
 
-      //I lock the dial in order not to accidentaly change frequency while tuning
+      //I lock the dial in order to avoid accidental change of frequency while tuning
       Serial2.print("LK;");
       delay(CommandDelay);
       Result = "";
@@ -254,8 +253,7 @@ void loop() {
         a = Serial2.read();
         Result = Result + a;
         if (a == ';') {
-          Result = Result.substring(2, Result.length() - 1);
-          LockStatus = Result.toInt();
+          LockStatus = Result.substring(2, Result.length() - 1);
         }
       }
       Serial2.print("LK7;");
@@ -264,7 +262,7 @@ void loop() {
       ActivateExternalTuner();  //Start tune process for external tuner
 
       //Restore dial lock status
-      Serial2.print("LK" + Result + ";");
+      Serial2.print("LK" + LockStatus + ";");
       delay(CommandDelay);
 
       Relay.SET_RLY0(I2C_REL_ADD, LOW);             //Re-connect the PTT button
@@ -278,7 +276,7 @@ void loop() {
 
       TimeText = "";
 
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       TFT_FOREGROUND = TFT_YELLOW;
       UpperClearDisplay();
       Upper.setFreeFont(&FreeSansBold24pt7b);
@@ -313,11 +311,12 @@ void loop() {
       UpperPrintText(8, 100, "Air time");
       Upper.pushSprite(0, 8);
       InfoDelay = millis() + 5000;
+      Message = 0;
     }
     InfoScreen();
   } else if (TransmitAntenna > 1) {
     if (Message != 5) {
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       TFT_FOREGROUND = TFT_YELLOW;
       UpperClearDisplay();
       Upper.setFreeFont(&FreeSansBold24pt7b);
@@ -329,8 +328,7 @@ void loop() {
     }
   } else {
     if (Message != 4) {
-      tft.fillScreen(TFT_BLACK);
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       TFT_FOREGROUND = TFT_YELLOW;
       UpperClearDisplay();
       Upper.setFreeFont(&FreeSansBold18pt7b);
@@ -343,8 +341,8 @@ void loop() {
       Upper.drawRect(1, 1, 318, 170, TFT_RED);
       Upper.pushSprite(0, 8);
       Message = 4;
-      ForceStatusRefresh = true;  //We force a status refresh when the comminication is reestablished
     }
+    PrintStatus();
   }
 }
 
@@ -394,7 +392,7 @@ void ActivateExternalTuner() {  //This function activates internal tuner, check 
   SetMic(0);                                   //Mute Mic
 
   TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_TEAL;
+  TFT_BACKGROUND = TFT_EBONY;
   ClearDisplay();
   tft.setFreeFont(&FreeSansBold24pt7b);
   PrintTextCentered(0, 320, 100, "Tuning...");
@@ -451,7 +449,6 @@ void ActivateExternalTuner() {  //This function activates internal tuner, check 
     LastTunedFrequency = CurrentFrequencyTX;  //LastTunedFrequency is used by external tuner.
     LastFailedFrequency = 0;
     Message = 0;
-    //    tft.setFreeFont(&FreeSansBold18pt7b);
     InfoDelay = millis() + 2000;
   }
 }
@@ -817,7 +814,7 @@ void InfoScreen() {                  // Displays messages on the display
   if (InfoDelay > millis()) return;  //Check if we have to delay
 
   TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_TEAL;
+  TFT_BACKGROUND = TFT_EBONY;
 
   if (!Tuned && Message != 1) {
     UpperClearDisplay();
@@ -841,11 +838,107 @@ void InfoScreen() {                  // Displays messages on the display
     Message = 2;
   }
 
-  //if (millis() > 4000) {     // Take the BigStatus parameter into account afer the first 4 seconds of use. Helps having a propper display during the start up.
-  PrintStatus(BigStatus);  //Call PrintStatus with TRUE value to show big character status changes
-  //} else {
-  //  PrintStatus(false);
-  //}
+  PrintStatus();
+}
+
+void PrintStatus(void) {
+  int a, b, c, d, i = 0;
+  unsigned long Timer = millis();
+  boolean BigChars = true;
+
+  a = ReadPower();
+  b = ReadEQ();
+  c = ReadCompressor();
+  d = ReadKeyer();
+
+  if (a == 0) BigChars = false;
+
+  if (a == PreviousPower && b == PreviousEQ && c == PreviousCompressor && d == PreviousKeyer) {
+    return;
+  }
+
+  if (b != PreviousEQ) {
+    if (ReadEQ() == 1) {
+      tft.fillRoundRect(0, 210, 54, 30, 5, TFT_GREEN);
+      tft.setFreeFont(&FreeSansBold12pt7b);
+      TFT_FOREGROUND = TFT_BLACK;
+      TFT_BACKGROUND = TFT_GREEN;
+    } else {
+      TFT_FOREGROUND = TFT_BLACK;
+      tft.fillRoundRect(0, 210, 54, 30, 5, TFT_RED);
+      tft.fillRoundRect(2, 212, 50, 26, 5, TFT_BLACK);
+      tft.setFreeFont(&FreeSansBold12pt7b);
+      TFT_FOREGROUND = TFT_RED;
+      TFT_BACKGROUND = TFT_BLACK;
+    }
+    PrintText(9, 238, "EQ");
+    TFT_BACKGROUND = TFT_EBONY;
+    PreviousEQ = b;
+  }
+
+
+  if (c != PreviousCompressor) {
+    if (ReadCompressor() == 1) {
+      tft.fillRoundRect(60, 210, 88, 30, 5, TFT_GREEN);
+      tft.setFreeFont(&FreeSansBold12pt7b);
+      TFT_FOREGROUND = TFT_BLACK;
+      TFT_BACKGROUND = TFT_GREEN;
+    } else {
+      TFT_FOREGROUND = TFT_BLACK;
+      tft.fillRoundRect(60, 210, 88, 30, 5, TFT_RED);
+      tft.fillRoundRect(62, 212, 84, 26, 5, TFT_BLACK);
+      tft.setFreeFont(&FreeSansBold12pt7b);
+      TFT_FOREGROUND = TFT_RED;
+      TFT_BACKGROUND = TFT_BLACK;
+    }
+    PrintText(66, 238, "COMP");
+    TFT_BACKGROUND = TFT_EBONY;
+    PreviousCompressor = c;
+  }
+
+  if (d != PreviousKeyer) {
+    if (ReadKeyer() == 1) {
+      tft.fillRoundRect(156, 210, 93, 30, 5, TFT_GREEN);
+      tft.setFreeFont(&FreeSansBold12pt7b);
+      TFT_FOREGROUND = TFT_BLACK;
+      TFT_BACKGROUND = TFT_GREEN;
+    } else {
+      TFT_FOREGROUND = TFT_BLACK;
+      tft.fillRoundRect(156, 210, 93, 30, 5, TFT_RED);
+      tft.fillRoundRect(158, 212, 89, 26, 5, TFT_BLACK);
+      tft.setFreeFont(&FreeSansBold12pt7b);
+      TFT_FOREGROUND = TFT_RED;
+      TFT_BACKGROUND = TFT_BLACK;
+    }
+    PrintText(162, 238, "KEYER");
+    TFT_BACKGROUND = TFT_EBONY;
+    PreviousKeyer = d;
+  }
+
+  if (a != PreviousPower) {
+    do {
+      a = ReadPower();
+      if (a != PreviousPower) {
+        TFT_FOREGROUND = TFT_YELLOW;
+        if (BigChars) {
+          TFT_BACKGROUND = TFT_EBONY;
+          UpperClearDisplay();
+          Upper.setFreeFont(&FreeSansBold24pt7b);
+          UpperPrintTextCentered(0, 320, 100, "PWR: " + String(a) + "W");
+          Upper.pushSprite(0, 8);
+          Timer = millis();
+        }
+        Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
+        Lower.setFreeFont(&FreeSansBold12pt7b);
+        TFT_BACKGROUND = TFT_BLACK;
+        LowerPrintText(1, 28, "PWR: " + String(a) + "W");
+        Lower.pushSprite(0, 181);
+        PreviousPower = a;
+      }
+      if (a == 0) Timer = 0;  //If the power = 0 then no need to wait
+    } while (Timer + 800 > millis());
+    if (BigChars == true) Message = 0;  //To allow to print another message over big characters
+  }
 }
 
 void SystemMenu() {
@@ -859,7 +952,7 @@ void SystemMenu() {
   } while (!RE1.digitalRead(SS_SWITCH));  //Loop while the rotary encoder's button is pressed
 
   TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_TEAL;
+  TFT_BACKGROUND = TFT_EBONY;
   UpperClearDisplay();
 
   do {
@@ -869,19 +962,19 @@ void SystemMenu() {
       UpperPrintTextCentered(0, 320, 28, "System Menu");
       if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 320, 65, "Frequency steps");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 320, 91, "Roffing filter");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 320, 117, "RF Power");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 320, 143, " ");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 320, 169, "Save parameters");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       Upper.drawRect(100, 117, 320 - 2 * 100, 1, TFT_YELLOW);
       Upper.pushSprite(0, 8);
       Redraw = false;
@@ -927,7 +1020,7 @@ void SystemMenu() {
       }
     }
   } while (millis() < start + 5000);
-  ForceStatusRefresh = true;  //To force status update
+  Message = 0;
 }
 
 void SubMenu(String smenu) {
@@ -960,7 +1053,7 @@ void SubMenu(String smenu) {
         if (String(SubMenus[i][0]) == smenu) {
           if (NumberOfItems + 1 == HighlightedMenu) TFT_BACKGROUND = TFT_RED;
           UpperPrintTextCentered(0, 320, NumberOfItems * 26 + 65, SubMenus[i][1]);
-          TFT_BACKGROUND = TFT_TEAL;
+          TFT_BACKGROUND = TFT_EBONY;
           NumberOfItems++;
         }
       }
@@ -1175,117 +1268,6 @@ int ReadEQ() {
   return Result.toInt();
 }
 
-void PrintStatus(boolean BigChars) {  //if BigChars=true then show info in big character also
-  int a, b, c, d, i = 0;
-  unsigned long Timer = millis();
-
-  if (ForceStatusRefresh) {
-    PreviousPower = -1;
-    PreviousCompressor = -1;
-    PreviousEQ = -1;
-    PreviousKeyer = -1;
-    BigChars = false;
-  }
-
-  a = ReadPower();
-  b = ReadEQ();
-  c = ReadCompressor();
-  d = ReadKeyer();
-
-  if (a == PreviousPower && b == PreviousEQ && c == PreviousCompressor && d == PreviousKeyer) {
-    return;
-  }
-
-  while (Timer + 800 > millis()) {
-
-    a = ReadPower();
-    b = ReadEQ();
-    c = ReadCompressor();
-    d = ReadKeyer();
-
-    if (a != PreviousPower) {
-      TFT_FOREGROUND = TFT_YELLOW;
-      if (BigChars) {
-        TFT_BACKGROUND = TFT_TEAL;
-        UpperClearDisplay();
-        Upper.setFreeFont(&FreeSansBold24pt7b);
-        UpperPrintTextCentered(0, 320, 100, "PWR: " + String(a) + "W");
-        Upper.pushSprite(0, 8);
-      }
-      Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
-      Lower.setFreeFont(&FreeSansBold12pt7b);
-      TFT_BACKGROUND = TFT_BLACK;
-      LowerPrintText(1, 28, "PWR: " + String(a) + "W");
-      Lower.pushSprite(0, 181);
-      Timer = millis();
-    }
-
-    if (b != PreviousEQ) {
-      if (ReadEQ() == 1) {
-        tft.fillRoundRect(0, 210, 54, 30, 5, TFT_GREEN);
-        tft.setFreeFont(&FreeSansBold12pt7b);
-        TFT_FOREGROUND = TFT_BLACK;
-        TFT_BACKGROUND = TFT_GREEN;
-      } else {
-        TFT_FOREGROUND = TFT_BLACK;
-        tft.fillRoundRect(0, 210, 54, 30, 5, TFT_RED);
-        tft.fillRoundRect(2, 212, 50, 26, 5, TFT_BLACK);
-        tft.setFreeFont(&FreeSansBold12pt7b);
-        TFT_FOREGROUND = TFT_RED;
-        TFT_BACKGROUND = TFT_BLACK;
-      }
-      PrintText(9, 238, "EQ");
-      TFT_BACKGROUND = TFT_TEAL;
-    }
-
-    if (c != PreviousCompressor) {
-
-      if (ReadCompressor() == 1) {
-        tft.fillRoundRect(60, 210, 88, 30, 5, TFT_GREEN);
-        tft.setFreeFont(&FreeSansBold12pt7b);
-        TFT_FOREGROUND = TFT_BLACK;
-        TFT_BACKGROUND = TFT_GREEN;
-      } else {
-        TFT_FOREGROUND = TFT_BLACK;
-        tft.fillRoundRect(60, 210, 88, 30, 5, TFT_RED);
-        tft.fillRoundRect(62, 212, 84, 26, 5, TFT_BLACK);
-        tft.setFreeFont(&FreeSansBold12pt7b);
-        TFT_FOREGROUND = TFT_RED;
-        TFT_BACKGROUND = TFT_BLACK;
-      }
-      PrintText(66, 238, "COMP");
-      TFT_BACKGROUND = TFT_TEAL;
-    }
-
-    if (d != PreviousKeyer) {
-
-      if (ReadKeyer() == 1) {
-        tft.fillRoundRect(156, 210, 93, 30, 5, TFT_GREEN);
-        tft.setFreeFont(&FreeSansBold12pt7b);
-        TFT_FOREGROUND = TFT_BLACK;
-        TFT_BACKGROUND = TFT_GREEN;
-      } else {
-        TFT_FOREGROUND = TFT_BLACK;
-        tft.fillRoundRect(156, 210, 93, 30, 5, TFT_RED);
-        tft.fillRoundRect(158, 212, 89, 26, 5, TFT_BLACK);
-        tft.setFreeFont(&FreeSansBold12pt7b);
-        TFT_FOREGROUND = TFT_RED;
-        TFT_BACKGROUND = TFT_BLACK;
-      }
-      PrintText(162, 238, "KEYER");
-      TFT_BACKGROUND = TFT_TEAL;
-    }
-
-    PreviousPower = a;
-    PreviousEQ = b;
-    PreviousCompressor = c;
-    PreviousKeyer = d;
-
-    ForceStatusRefresh = false;
-    Message = 0;  //To force redraw and overlap the big characters
-  }
-}
-
 void ClearDisplay() {
   tft.fillRect(0, 8, 320, 172, TFT_BACKGROUND);
 }
@@ -1313,7 +1295,7 @@ void MenuHandle_1stEncoder() {
   RE1.setEncoderPosition(0);
 
   TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_TEAL;
+  TFT_BACKGROUND = TFT_EBONY;
   UpperClearDisplay();
 
   do {
@@ -1323,25 +1305,25 @@ void MenuHandle_1stEncoder() {
       UpperPrintTextCentered(0, 320, 28, "Select parameter");
       if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 65, "Squelch");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 91, "Memory Ch.");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 117, "Notch");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 143, "Contour width");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 169, "Contour level");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 6) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(160, 320, 65, "Power level");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 7) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(160, 320, 91, "Frequency");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       Upper.pushSprite(0, 8);
 
       Redraw = false;
@@ -1396,7 +1378,6 @@ void MenuHandle_1stEncoder() {
     }
   } while (millis() < start + 5000);
   Message = 0;
-  ForceStatusRefresh = true;  //To force status update
 }
 
 void MenuHandle_2ndEncoder() {
@@ -1411,7 +1392,7 @@ void MenuHandle_2ndEncoder() {
   RE2.setEncoderPosition(0);
 
   TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_TEAL;
+  TFT_BACKGROUND = TFT_EBONY;
   UpperClearDisplay();
 
   do {
@@ -1421,25 +1402,25 @@ void MenuHandle_2ndEncoder() {
       UpperPrintTextCentered(0, 320, 28, "Select parameter");
       if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 65, "Squelch");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 91, "Memory Ch.");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 117, "Notch");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 143, "Contour width");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 169, "Contour level");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 6) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(160, 320, 65, "Power level");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 7) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(160, 320, 91, "Frequency");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       Upper.pushSprite(0, 8);
 
       Redraw = false;
@@ -1494,7 +1475,6 @@ void MenuHandle_2ndEncoder() {
     }
   } while (millis() < start + 5000);
   Message = 0;
-  ForceStatusRefresh = true;  //To force status update
 }
 
 void MenuHandle_3rdEncoder() {
@@ -1509,7 +1489,7 @@ void MenuHandle_3rdEncoder() {
   RE3.setEncoderPosition(0);
 
   TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_TEAL;
+  TFT_BACKGROUND = TFT_EBONY;
   UpperClearDisplay();
 
   do {
@@ -1519,25 +1499,25 @@ void MenuHandle_3rdEncoder() {
       UpperPrintTextCentered(0, 320, 28, "Select parameter");
       if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 65, "Squelch");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 91, "Memory Ch.");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 117, "Notch");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 143, "Contour width");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 169, "Contour level");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 6) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(160, 320, 65, "Power level");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 7) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(160, 320, 91, "Frequency");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       Upper.pushSprite(0, 8);
 
       Redraw = false;
@@ -1592,7 +1572,6 @@ void MenuHandle_3rdEncoder() {
     }
   } while (millis() < start + 5000);
   Message = 0;
-  ForceStatusRefresh = true;  //To force status update
 }
 
 void MenuHandle_4thEncoder() {
@@ -1607,7 +1586,7 @@ void MenuHandle_4thEncoder() {
   RE4.setEncoderPosition(0);
 
   TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_TEAL;
+  TFT_BACKGROUND = TFT_EBONY;
   UpperClearDisplay();
 
   do {
@@ -1617,25 +1596,25 @@ void MenuHandle_4thEncoder() {
       UpperPrintTextCentered(0, 320, 28, "Select parameter");
       if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 65, "Squelch");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 91, "Memory Ch.");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 117, "Notch");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 143, "Contour width");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 160, 169, "Contour level");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 6) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(160, 320, 65, "Power level");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 7) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(160, 320, 91, "Frequency");
-      TFT_BACKGROUND = TFT_TEAL;
+      TFT_BACKGROUND = TFT_EBONY;
       Upper.pushSprite(0, 8);
 
       Redraw = false;
@@ -1690,7 +1669,6 @@ void MenuHandle_4thEncoder() {
     }
   } while (millis() < start + 5000);
   Message = 0;
-  ForceStatusRefresh = true;  //To force status update
 }
 
 void Read1stEncoder() {
@@ -1719,7 +1697,7 @@ void Read1stEncoder() {
     if (encoder_position1 != new_position1) {
       if (Message != 0) {
         TFT_FOREGROUND = TFT_YELLOW;
-        TFT_BACKGROUND = TFT_TEAL;
+        TFT_BACKGROUND = TFT_EBONY;
         UpperClearDisplay();
         Message = 0;
       }
@@ -1742,17 +1720,17 @@ void Read1stEncoder() {
             }
             break;
           case 4:
-            ContourWidth++;
+            ContourWidth += (encoder_position1 - new_position1);
             if (ContourWidth > 11) { ContourWidth = 11; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel++;
+            ContourLevel += (encoder_position1 - new_position1);
             if (ContourLevel > 20) { ContourLevel = 20; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel++;
+            PowerLevel += (encoder_position1 - new_position1);
             if (RIG_Model == 'FTDX101MP' && PowerLevel > 200) {
               PowerLevel = 200;
             } else if (RIG_Model == 'FTDX101D' && PowerLevel > 100) {
@@ -1786,17 +1764,17 @@ void Read1stEncoder() {
             }
             break;
           case 4:
-            ContourWidth--;
+            ContourWidth -= (new_position1 - encoder_position1);
             if (ContourWidth < 1) { ContourWidth = 1; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel--;
+            ContourLevel -= (new_position1 - encoder_position1);
             if (ContourLevel < -40) { ContourLevel = -40; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel--;
+            PowerLevel -= (new_position1 - encoder_position1);
             if (PowerLevel < 5) { PowerLevel = 5; }
             SetPower(PowerLevel);
             break;
@@ -1843,15 +1821,12 @@ void Read1stEncoder() {
         case 6:
           Upper.setFreeFont(&FreeSansBold24pt7b);
           UpperPrintTextCentered(0, 320, 100, "PWR: " + String(PowerLevel) + "W");
-          tft.setFreeFont(&FreeSansBold12pt7b);
+          Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
+          Lower.setFreeFont(&FreeSansBold12pt7b);
           TFT_BACKGROUND = TFT_BLACK;
-          if (i < 1) {
-            PrintText(1, 207, "PWR:");
-            i++;
-          }
-          PrintTextCentered(70, 150, 207, String(PowerLevel) + "W");
-
-          TFT_BACKGROUND = TFT_TEAL;
+          LowerPrintText(1, 28, "PWR: " + String(PowerLevel) + "W");
+          Lower.pushSprite(0, 181);
+          TFT_BACKGROUND = TFT_EBONY;
           PreviousPower = PowerLevel;  //In order to avoid to force status update because of the power change
           break;
         case 7:
@@ -1909,7 +1884,7 @@ void Read2ndEncoder() {
     if (encoder_position2 != new_position2) {
       if (Message != 0) {
         TFT_FOREGROUND = TFT_YELLOW;
-        TFT_BACKGROUND = TFT_TEAL;
+        TFT_BACKGROUND = TFT_EBONY;
         UpperClearDisplay();
         Message = 0;
       }
@@ -1932,17 +1907,17 @@ void Read2ndEncoder() {
             }
             break;
           case 4:
-            ContourWidth++;
+            ContourWidth += (encoder_position2 - new_position2);
             if (ContourWidth > 11) { ContourWidth = 11; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel++;
+            ContourLevel += (encoder_position2 - new_position2);
             if (ContourLevel > 20) { ContourLevel = 20; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel++;
+            PowerLevel += (encoder_position2 - new_position2);
             if (RIG_Model == 'FTDX101MP' && PowerLevel > 200) {
               PowerLevel = 200;
             } else if (RIG_Model == 'FTDX101D' && PowerLevel > 100) {
@@ -1976,17 +1951,17 @@ void Read2ndEncoder() {
             }
             break;
           case 4:
-            ContourWidth--;
+            ContourWidth -= (new_position2 - encoder_position2);
             if (ContourWidth < 1) { ContourWidth = 1; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel--;
+            ContourLevel -= (new_position2 - encoder_position2);
             if (ContourLevel < -40) { ContourLevel = -40; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel--;
+            PowerLevel -= (new_position2 - encoder_position2);
             if (PowerLevel < 5) { PowerLevel = 5; }
             SetPower(PowerLevel);
             break;
@@ -2033,15 +2008,12 @@ void Read2ndEncoder() {
         case 6:
           Upper.setFreeFont(&FreeSansBold24pt7b);
           UpperPrintTextCentered(0, 320, 100, "PWR: " + String(PowerLevel) + "W");
-          tft.setFreeFont(&FreeSansBold12pt7b);
+          Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
+          Lower.setFreeFont(&FreeSansBold12pt7b);
           TFT_BACKGROUND = TFT_BLACK;
-          if (i < 1) {
-            PrintText(1, 207, "PWR:");
-            i++;
-          }
-          PrintTextCentered(70, 150, 207, String(PowerLevel) + "W");
-
-          TFT_BACKGROUND = TFT_TEAL;
+          LowerPrintText(1, 28, "PWR: " + String(PowerLevel) + "W");
+          Lower.pushSprite(0, 181);
+          TFT_BACKGROUND = TFT_EBONY;
           PreviousPower = PowerLevel;  //In order to avoid to force status update because of the power change
           break;
         case 7:
@@ -2099,7 +2071,7 @@ void Read3rdEncoder() {
     if (encoder_position3 != new_position3) {
       if (Message != 0) {
         TFT_FOREGROUND = TFT_YELLOW;
-        TFT_BACKGROUND = TFT_TEAL;
+        TFT_BACKGROUND = TFT_EBONY;
         UpperClearDisplay();
         Message = 0;
       }
@@ -2122,17 +2094,17 @@ void Read3rdEncoder() {
             }
             break;
           case 4:
-            ContourWidth++;
+            ContourWidth += (encoder_position3 - new_position3);
             if (ContourWidth > 11) { ContourWidth = 11; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel++;
+            ContourLevel += (encoder_position3 - new_position3);
             if (ContourLevel > 20) { ContourLevel = 20; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel++;
+            PowerLevel += (encoder_position3 - new_position3);
             if (RIG_Model == 'FTDX101MP' && PowerLevel > 200) {
               PowerLevel = 200;
             } else if (RIG_Model == 'FTDX101D' && PowerLevel > 100) {
@@ -2166,17 +2138,17 @@ void Read3rdEncoder() {
             }
             break;
           case 4:
-            ContourWidth--;
+            ContourWidth -= (new_position3 - encoder_position3);
             if (ContourWidth < 1) { ContourWidth = 1; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel--;
+            ContourLevel -= (new_position3 - encoder_position3);
             if (ContourLevel < -40) { ContourLevel = -40; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel--;
+            PowerLevel -= (new_position3 - encoder_position3);
             if (PowerLevel < 5) { PowerLevel = 5; }
             SetPower(PowerLevel);
             break;
@@ -2223,15 +2195,12 @@ void Read3rdEncoder() {
         case 6:
           Upper.setFreeFont(&FreeSansBold24pt7b);
           UpperPrintTextCentered(0, 320, 100, "PWR: " + String(PowerLevel) + "W");
-          tft.setFreeFont(&FreeSansBold12pt7b);
+          Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
+          Lower.setFreeFont(&FreeSansBold12pt7b);
           TFT_BACKGROUND = TFT_BLACK;
-          if (i < 1) {
-            PrintText(1, 207, "PWR:");
-            i++;
-          }
-          PrintTextCentered(70, 150, 207, String(PowerLevel) + "W");
-
-          TFT_BACKGROUND = TFT_TEAL;
+          LowerPrintText(1, 28, "PWR: " + String(PowerLevel) + "W");
+          Lower.pushSprite(0, 181);
+          TFT_BACKGROUND = TFT_EBONY;
           PreviousPower = PowerLevel;  //In order to avoid to force status update because of the power change
           break;
         case 7:
@@ -2289,7 +2258,7 @@ void Read4thEncoder() {
     if (encoder_position4 != new_position4) {
       if (Message != 0) {
         TFT_FOREGROUND = TFT_YELLOW;
-        TFT_BACKGROUND = TFT_TEAL;
+        TFT_BACKGROUND = TFT_EBONY;
         UpperClearDisplay();
         Message = 0;
       }
@@ -2312,17 +2281,17 @@ void Read4thEncoder() {
             }
             break;
           case 4:
-            ContourWidth++;
+            ContourWidth += (encoder_position4 - new_position4);
             if (ContourWidth > 11) { ContourWidth = 11; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel++;
+            ContourLevel += (encoder_position4 - new_position4);
             if (ContourLevel > 20) { ContourLevel = 20; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel++;
+            PowerLevel += (encoder_position4 - new_position4);
             if (RIG_Model == 'FTDX101MP' && PowerLevel > 200) {
               PowerLevel = 200;
             } else if (RIG_Model == 'FTDX101D' && PowerLevel > 100) {
@@ -2356,17 +2325,17 @@ void Read4thEncoder() {
             }
             break;
           case 4:
-            ContourWidth--;
+            ContourWidth -= (new_position4 - encoder_position4);
             if (ContourWidth < 1) { ContourWidth = 1; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel--;
+            ContourLevel -= (new_position4 - encoder_position4);
             if (ContourLevel < -40) { ContourLevel = -40; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel--;
+            PowerLevel -= (new_position4 - encoder_position4);
             if (PowerLevel < 5) { PowerLevel = 5; }
             SetPower(PowerLevel);
             break;
@@ -2413,15 +2382,12 @@ void Read4thEncoder() {
         case 6:
           Upper.setFreeFont(&FreeSansBold24pt7b);
           UpperPrintTextCentered(0, 320, 100, "PWR: " + String(PowerLevel) + "W");
-          tft.setFreeFont(&FreeSansBold12pt7b);
+          Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
+          Lower.setFreeFont(&FreeSansBold12pt7b);
           TFT_BACKGROUND = TFT_BLACK;
-          if (i < 1) {
-            PrintText(1, 207, "PWR:");
-            i++;
-          }
-          PrintTextCentered(70, 150, 207, String(PowerLevel) + "W");
-
-          TFT_BACKGROUND = TFT_TEAL;
+          LowerPrintText(1, 28, "PWR: " + String(PowerLevel) + "W");
+          Lower.pushSprite(0, 181);
+          TFT_BACKGROUND = TFT_EBONY;
           PreviousPower = PowerLevel;  //In order to avoid to force status update because of the power change
           break;
         case 7:
@@ -2569,11 +2535,12 @@ void LowerPrintTextCentered(int xl, int xr, int y, String text) {  //xl indicate
 
 int NormalizePO(int x) {
   //int PowerArray[23] = { 0, 29, 54, 69, 82, 97, 111, 120, 130, 139, 149, 157, 163, 171, 176, 184, 190, 197, 203, 210, 216, 223, 255 };  //My scale
+  //int PowerArray[23] = { 0, 30, 43, 63, 79, 94, 105, 115, 125, 135, 145, 153, 159, 164, 169, 174, 179, 186, 193, 200, 206, 212, 255 };  //Optimistic scale
   int Array_end;
   int i, Result;
 
 #if (RIG_Model == 'FTDX101MP')
-  int PowerArray[23] = { 0, 30, 43, 63, 79, 94, 105, 115, 125, 135, 145, 153, 159, 164, 169, 174, 179, 186, 193, 200, 206, 212, 255 };
+  int PowerArray[23] = { 0, 29, 54, 69, 82, 97, 111, 120, 130, 139, 149, 157, 163, 171, 176, 184, 190, 197, 203, 210, 216, 223, 255 };
   Array_end = 22;
 #else if (RIG_Model == 'FTDX101D')
   int PowerArray[13] = { 0, 32, 54, 82, 104, 128, 147, 159, 169, 183, 193, 200, 255 };
