@@ -88,10 +88,11 @@ uint16_t TFT_BACKGROUND = TFT_EBONY;   //This variable holds the backgournd colo
 uint16_t TFT_FOREGROUND = TFT_YELLOW;  //This variable holds the foreground color of the disaplay
 
 //Loading the menu data on a constant array
-const char* SubMenus[18][3] = { { "1", "100Hz", "100" }, { "1", "250Hz", "250" }, { "1", "500Hz", "500" }, { "1", "1KHz", "1000" }, { "2", "  None ", "0" }, { "2", " 12 KHz", "1" }, { "2", "  3 KHz", "2" }, { "2", " 600 Hz", "4" }, { "2", " 300 Hz", "5" }, { "3", "5W", "5" }, { "3", "20W", "20" }, { "3", "40W", "40" }, { "3", "100W", "100" }, { "3", "200W", "200" }, { "4", "", "" }, { "4", "", "" }, { "5", "No", "0" }, { "5", "Yes", "1" } };
+String SubMenus[17][3] = { { "1", "100Hz", "100" }, { "1", "250Hz", "250" }, { "1", "500Hz", "500" }, { "1", "1KHz", "1000" }, { "2", "  None ", "0" }, { "2", " 12 KHz", "1" }, { "2", "  3 KHz", "2" }, { "2", " 600 Hz", "4" }, { "2", " 300 Hz", "5" }, { "3", "5W", "5" }, { "3", "20W", "20" }, { "3", "40W", "40" }, { "3", "100W", "100" }, { "3", "200W", "200" }, { "4", "", "" }, { "5", "No", "0" }, { "5", "Yes", "1" } };
 
 unsigned long ONAirStartTime;  //Marks the time that on air activity started
-long ONAirTime;                //Actual time on air in minutes
+int ONAirTime;                 //Actual time on air in seconds;
+int MaxAirTime;                //Maximum air time in second. When we reach 80% of the end of time the timer on the display turns red
 
 int PPO;  //Peak Power Out
 
@@ -117,6 +118,7 @@ void setup() {
   ExtendedParameter4 = preferences.getInt("Parameter4", 0);
   Steps = preferences.getInt("Steps", 0);
   SelectedFilter = preferences.getInt("Filter", 0);
+  MaxAirTime = preferences.getInt("MaxAirTime", 0);
   preferences.end();
 
   //Serial.begin(115200);                                //Initiate the serial monitor port
@@ -296,12 +298,18 @@ void loop() {
           TimeText += String(ONAirTime % 60) + " ";
         }
         Upper.setFreeFont(&FreeSansBold24pt7b);
+        if (ONAirTime > MaxAirTime * .8) {
+          TFT_FOREGROUND = TFT_RED;
+        } else {
+          TFT_FOREGROUND = TFT_YELLOW;
+        }
         UpperPrintText(195, 100, TimeText);
 
         MPO = ReadPowerOut();
         if (MPO > PPO) PPO = MPO;
 
         Upper.setFreeFont(&FreeSansBold12pt7b);
+        TFT_FOREGROUND = TFT_YELLOW;
         UpperPrintText(180, 140, String(NormalizePO(PPO)) + " W ");
         UpperPrintText(110, 140, "PEP :");
         Upper.pushSprite(0, 8);
@@ -970,12 +978,12 @@ void SystemMenu() {
       UpperPrintTextCentered(0, 320, 117, "RF Power");
       TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 143, " ");
+      UpperPrintTextCentered(0, 320, 143, "Transmit time");
       TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
       UpperPrintTextCentered(0, 320, 169, "Save parameters");
       TFT_BACKGROUND = TFT_EBONY;
-      Upper.drawRect(100, 117, 320 - 2 * 100, 1, TFT_YELLOW);
+      //Upper.drawRect(100, 117, 320 - 2 * 100, 1, TFT_YELLOW);
       Upper.pushSprite(0, 8);
       Redraw = false;
     }
@@ -1009,7 +1017,9 @@ void SystemMenu() {
           SubMenu("3");
           break;
         case 4:
-          //SubMenu("4");
+          SubMenus[14][1] = String(MaxAirTime) + " Sec";
+          SubMenus[14][2] = String(MaxAirTime);
+          SubMenu("4");
           break;
         case 5:
           SubMenu("5");
@@ -1021,6 +1031,15 @@ void SystemMenu() {
     }
   } while (millis() < start + 5000);
   Message = 0;
+  // Now forget any encoder rotation that happened while we were in the System Menu
+  RE1.setEncoderPosition(0);
+  RE2.setEncoderPosition(0);
+  RE3.setEncoderPosition(0);
+  RE4.setEncoderPosition(0);
+  encoder_position1 = 0;
+  encoder_position2 = 0;
+  encoder_position3 = 0;
+  encoder_position4 = 0;
 }
 
 void SubMenu(String smenu) {
@@ -1031,6 +1050,7 @@ void SubMenu(String smenu) {
   int NumberOfItems = 0;
   String GenericText = "";
   int timeout = 3000;
+  int TempMaxAirTime = MaxAirTime;
 
   UpperClearDisplay();
   do {
@@ -1044,15 +1064,19 @@ void SubMenu(String smenu) {
       } else if (smenu == "3") {
         UpperPrintTextCentered(0, 320, 28, "RF Power");
       } else if (smenu == "4") {
-        UpperPrintTextCentered(0, 320, 28, " ");
+        UpperPrintTextCentered(0, 320, 28, "Transmit time");
       } else if (smenu == "5") {
         UpperPrintTextCentered(0, 320, 28, "Save parameters");
       }
 
-      for (i = 0; i < 18; i++) {
+      for (i = 0; i < 17; i++) {
         if (String(SubMenus[i][0]) == smenu) {
           if (NumberOfItems + 1 == HighlightedMenu) TFT_BACKGROUND = TFT_RED;
-          UpperPrintTextCentered(0, 320, NumberOfItems * 26 + 65, SubMenus[i][1]);
+          if (smenu != "4") {
+            UpperPrintTextCentered(0, 320, NumberOfItems * 26 + 65, SubMenus[i][1]);
+          } else {
+            UpperPrintTextCentered(0, 320, 1 * 26 + 65, SubMenus[i][1]);
+          }
           TFT_BACKGROUND = TFT_EBONY;
           NumberOfItems++;
         }
@@ -1063,13 +1087,26 @@ void SubMenu(String smenu) {
 
     int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();  // Reads the current position of the rotary encoder
     if (new_position1 != encoder_position1) {                             //If the encoder has been moved
-      if (new_position1 < encoder_position1) {
-        HighlightedMenu++;
-        if (HighlightedMenu > NumberOfItems) HighlightedMenu = NumberOfItems;
-      } else {
-        HighlightedMenu--;
-        if (HighlightedMenu < 1) HighlightedMenu = 1;
+      if (smenu != "4") {                                                 //if we are not in the 4th menu...
+        if (new_position1 < encoder_position1) {
+          HighlightedMenu++;
+          if (HighlightedMenu > NumberOfItems) HighlightedMenu = NumberOfItems;
+        } else {
+          HighlightedMenu--;
+          if (HighlightedMenu < 1) HighlightedMenu = 1;
+        }
+      } else {  //if we are in the 4th menu...
+        if (new_position1 < encoder_position1) {
+          TempMaxAirTime++;
+          if (TempMaxAirTime > 1000) TempMaxAirTime = 999;
+        } else {
+          TempMaxAirTime--;
+          if (TempMaxAirTime < 1) TempMaxAirTime = 1;
+        }
+        SubMenus[14][1] = String(TempMaxAirTime) + " Sec";
+        SubMenus[14][2] = String(TempMaxAirTime);
       }
+
       Redraw = true;
       start = millis();
     }
@@ -1105,8 +1142,8 @@ void SubMenu(String smenu) {
         GenericText = SubMenus[i][2];
         SetPower(GenericText.toInt());
       } else if (smenu == "4") {
-        //GenericText = SubMenus[i][2];
-        //AutoTune = GenericText.toInt();
+        GenericText = SubMenus[i][2];
+        MaxAirTime = GenericText.toInt();
       } else if (smenu == "5") {
         GenericText = SubMenus[i][2];
         if (GenericText == "1") {
@@ -1117,6 +1154,7 @@ void SubMenu(String smenu) {
           preferences.putInt("Parameter4", ExtendedParameter4);
           preferences.putInt("Steps", Steps);
           preferences.putInt("Filter", SelectedFilter);
+          preferences.putInt("MaxAirTime", MaxAirTime);
           preferences.end();
         } else {
         }
@@ -1125,7 +1163,7 @@ void SubMenu(String smenu) {
       timeout = 0;
     }
   } while (millis() < start + timeout);
-  PreviousPower = 0;  //To force status update
+  //PreviousPower = 0;  //To force status update
 }
 
 int ReadAntenna(int MainSub) {
