@@ -72,6 +72,7 @@ int MAINSUBTX = 0;    //Main (0) or sub (1) for transmit
 int MAINSUBRX = 0;    //Main (0) or sub (1) for receive
 int SelectedFilter;   //The selected filter. Default = 0 (None)
 int TransmitAntenna;  //Number of the antenna used for transmition
+int VOXStatus;        //The status of VOX
 
 int PreviousPower = -1;       //The RF power level
 int PreviousCompressor = -1;  //The status of the compressor (1=on, 0=off)
@@ -246,6 +247,9 @@ void loop() {
       Serial2.print("MX0;");  //Stop transmition due to MOX
       delay(CommandDelay);
       Relay.SET_RLY0(I2C_REL_ADD, HIGH);  //Disconnect the PTT button (Stop transmition due to Mic)
+      VOXStatus = ReadVOXStatus();        //Check and stop VOX
+      Serial2.print("VX0;");
+      delay(CommandDelay);
 
       //I lock the dial in order to avoid accidental change of frequency while tuning
       Serial2.print("LK;");
@@ -266,6 +270,12 @@ void loop() {
       //Restore dial lock status
       Serial2.print("LK" + LockStatus + ";");
       delay(CommandDelay);
+
+      //Restore VOX if it was active
+      if (VOXStatus == 1) {
+        Serial2.print("VX1;");
+        delay(CommandDelay);
+      }
 
       Relay.SET_RLY0(I2C_REL_ADD, LOW);             //Re-connect the PTT button
     } else if (digitalRead(TXGND) == 0 && Tuned) {  //If we transmit and is tuned
@@ -1178,6 +1188,28 @@ int ReadAntenna(int MainSub) {
   } else if (MainSub == 1) {
     Serial2.print("AN1;");
   }
+  delay(CommandDelay);
+
+
+  Result = "";
+  while (Serial2.available() > 0) {
+    a = Serial2.read();
+    Result = Result + a;
+    if (a == ';') {
+      Result = Result.substring(3, Result.length() - 2);
+    }
+  }
+  return Result.toInt();
+}
+
+int ReadVOXStatus(void) {  //Return 1 if active, 0 if not
+
+  char a;
+  String Result;
+
+  FlushSerialInput();
+
+  Serial2.print("VX;");
   delay(CommandDelay);
 
 
