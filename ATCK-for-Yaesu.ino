@@ -44,6 +44,8 @@
 #define TFT_TEAL 0x0410   // Define the Teal color for the TFT display
 #define TFT_EBONY 0x52EA  // Define the Ebony color for the TFT display
 
+TaskHandle_t SecondCoreTask;  //A task handle to the function that run on core 0
+
 Preferences preferences;  //Define the oncject to hadndle the read/write to the on-board non-volatile memory
 
 Adafruit_seesaw RE1;  //Define the object of the 1st rotary encoder
@@ -57,7 +59,7 @@ TFT_eSPI tft = TFT_eSPI();              //Defive the object to handle the TFT di
 TFT_eSprite Upper = TFT_eSprite(&tft);  //Define a sprite for the upper part of the display
 TFT_eSprite Lower = TFT_eSprite(&tft);  //Define a sprite for the lower part of the display
 
-boolean Tuned = false;  // True if in a specific range around the last tuned frequency, false if otherwise
+bool Tuned = false;  // True if in a specific range around the last tuned frequency, false if otherwise
 
 unsigned long InfoDelay;  // The application should wait until that time to show another info on the upper screen (in milliseconds from the start of the initilization of the ATCK device)
 int Message = 0;          // Each info message has a number. We keep here the number of the message that shows on the display
@@ -88,12 +90,19 @@ int32_t encoder_position4;  //The value of the fourth encoder
 uint16_t TFT_BACKGROUND = TFT_EBONY;   //This variable holds the backgournd color of the disaplay
 uint16_t TFT_FOREGROUND = TFT_YELLOW;  //This variable holds the foreground color of the disaplay
 
-//Loading the menu data on a constant array
-String SubMenus[17][3] = { { "1", "100Hz", "100" }, { "1", "250Hz", "250" }, { "1", "500Hz", "500" }, { "1", "1KHz", "1000" }, { "2", "  None ", "0" }, { "2", " 12 KHz", "1" }, { "2", "  3 KHz", "2" }, { "2", " 600 Hz", "4" }, { "2", " 300 Hz", "5" }, { "3", "5W", "5" }, { "3", "20W", "20" }, { "3", "40W", "40" }, { "3", "100W", "100" }, { "3", "200W", "200" }, { "4", "", "" }, { "5", "No", "0" }, { "5", "Yes", "1" } };
+//Loading the menu data on a string array00
+String SubMenus[18][3] = { { "1", "100Hz", "100" }, { "1", "250Hz", "250" }, { "1", "500Hz", "500" }, { "1", "1KHz", "1000" }, { "2", "  None ", "0" }, { "2", " 12 KHz", "1" }, { "2", "  3 KHz", "2" }, { "2", " 600 Hz", "4" }, { "2", " 300 Hz", "5" }, { "3", "5W", "5" }, { "3", "20W", "20" }, { "3", "40W", "40" }, { "3", "100W", "100" }, { "3", "200W", "200" }, { "4", "", "" }, { "5", "", "" }, { "6", "No", "0" }, { "6", "Yes", "1" } };
+String Menu[6][2] = { { "1", "Frequency steps" }, { "2", "Roffing filter" }, { "3", "RF Power" }, { "4", "Transmit timer" }, { "5", "2nd relay" }, { "6", "Save parameters" } };
 
 unsigned long ONAirStartTime;  //Marks the time that on air activity started
 int ONAirTime;                 //Actual time on air in seconds;
 int MaxAirTime;                //Maximum air time in second. When we reach 80% of the end of time the timer on the display turns red
+
+int SecondRelayActivationTime = 0;  //The second relay activation in seconds relative to the tuner activation. Negative values shows that the second relay activate s before the tuner activation. Positive value means after the tuner activation. A value of zero means activates with the tuner activation.
+int SecondRelayDelay = 0;           //The time in seconds that the second relay stays activated after it gets activated. Only possitive values f course.
+unsigned long SecondRelayActivationMillis = 0;
+unsigned long SecondRelayDeactivationMillis = 0;
+bool RLY1 = false;  //To follow the status of RLY1
 
 int PPO;  //Peak Power Out
 
@@ -120,6 +129,8 @@ void setup() {
   Steps = preferences.getInt("Steps", 0);
   SelectedFilter = preferences.getInt("Filter", 0);
   MaxAirTime = preferences.getInt("MaxAirTime", 0);
+  SecondRelayActivationTime = preferences.getInt("SRAT", 0);
+  SecondRelayDelay = preferences.getInt("SRD", 0);
   preferences.end();
 
   //Serial.begin(115200);                                //Initiate the serial monitor port
@@ -161,16 +172,25 @@ void setup() {
   TFT_BACKGROUND = TFT_EBONY;
 
   attachInterrupt(digitalPinToInterrupt(TXGND), Interupt1, CHANGE);  //Setup the interrupt routine to call and the condition to call it
+
+  xTaskCreatePinnedToCore(  //Task for second core
+    SecondCoreTaskCode,     /* Task function. */
+    "SecondCoreTask",       /* name of task. */
+    10000,                  /* Stack size of task */
+    NULL,                   /* parameter of the task */
+    1,                      /* priority of the task */
+    &SecondCoreTask,        /* Task handle to keep track of created task */
+    0);                     /* pin task to core 0 */
 }
 
 void loop() {
-  char a;                            //Generic character string
-  String Result;                     //Generic results storage
-  String LockStatus;                 //Lock status
-  boolean ButtonShortPress = false;  // Checks in the tune button has been pressed for a long time (>1 sec?)
-  unsigned long ButtonPressTime;     //The point in time where the button is pressed
-  String TimeText;                   //To hold the on air time string
-  int MPO;                           //Max Power Out
+  char a;                         //Generic character string
+  String Result;                  //Generic results storage
+  String LockStatus;              //Lock status
+  bool ButtonShortPress = false;  // Checks in the tune button has been pressed for a long time (>1 sec?)
+  unsigned long ButtonPressTime;  //The point in time where the button is pressed
+  String TimeText;                //To hold the on air time string
+  int MPO;                        //Max Power Out
 
   int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();  // If 1st encoder moved
   if (encoder_position1 != new_position1) {
@@ -265,7 +285,19 @@ void loop() {
       Serial2.print("LK7;");
       delay(CommandDelay);
 
-      ActivateExternalTuner();  //Start tune process for external tuner
+      if (SecondRelayActivationTime >= 0) {
+        SecondRelayActivationMillis = millis() + SecondRelayActivationTime * 1000;
+        SecondRelayDeactivationMillis = millis() + SecondRelayActivationTime * 1000 + SecondRelayDelay * 1000;
+        ActivateExternalTuner();  //Start tune process for external tuner
+      } else {
+        SecondRelayActivationMillis = millis();
+        SecondRelayDeactivationMillis = millis() + SecondRelayDelay * 1000;
+        unsigned long DelayBeforeActivation = millis() - SecondRelayActivationTime * 1000;
+        while (millis() < DelayBeforeActivation) {
+        }
+        ActivateExternalTuner();  //Start tune process for external tuner
+      }
+
 
       //Restore dial lock status
       Serial2.print("LK" + LockStatus + ";");
@@ -364,7 +396,7 @@ void loop() {
   }
 }
 
-boolean IsInTunedFrequencies(long x) {  //Check if we are in the range of the last tuned frquency
+bool IsInTunedFrequencies(long x) {  //Check if we are in the range of the last tuned frquency
 
   //int i;  //Generic counter
 
@@ -862,7 +894,7 @@ void InfoScreen() {                  // Displays messages on the display
 void PrintStatus(void) {
   int a, b, c, d, i = 0;
   unsigned long Timer = millis();
-  boolean BigChars = true;
+  bool BigChars = true;
 
   a = ReadPower();
   b = ReadEQ();
@@ -960,52 +992,65 @@ void PrintStatus(void) {
 }
 
 void SystemMenu() {
-  start = millis();
   int HighlightedMenu = 1;  //The menu that is highlighted
   bool Redraw = true;
   uint16_t SwapColors;
-
-  do {
-    delay(CommandDelay);
-  } while (!RE1.digitalRead(SS_SWITCH));  //Loop while the rotary encoder's button is pressed
+  int MenuTopPosition = 0;  // Show which menu option is on top (we have only 5 options to dsisplay). 0 is the first one.
 
   TFT_FOREGROUND = TFT_YELLOW;
   TFT_BACKGROUND = TFT_EBONY;
   UpperClearDisplay();
 
+  start = millis();
+
   do {
     if (Redraw == true) {
+      TFT_FOREGROUND = TFT_YELLOW;
+      TFT_BACKGROUND = TFT_EBONY;
       Upper.setFreeFont(&FreeSansBold12pt7b);
       UpperPrintTextCentered(0, 320, 43, "--------------------");
       UpperPrintTextCentered(0, 320, 28, "System Menu");
       if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 65, "Frequency steps");
+      UpperPrintTextCentered(0, 320, 65, Menu[MenuTopPosition][1]);
       TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 91, "Roffing filter");
+      UpperPrintTextCentered(0, 320, 91, Menu[MenuTopPosition + 1][1]);
       TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 117, "RF Power");
+      UpperPrintTextCentered(0, 320, 117, Menu[MenuTopPosition + 2][1]);
       TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 143, "Transmit time");
+      UpperPrintTextCentered(0, 320, 143, Menu[MenuTopPosition + 3][1]);
       TFT_BACKGROUND = TFT_EBONY;
       if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 169, "Save parameters");
+      UpperPrintTextCentered(0, 320, 169, Menu[MenuTopPosition + 4][1]);
       TFT_BACKGROUND = TFT_EBONY;
       //Upper.drawRect(100, 117, 320 - 2 * 100, 1, TFT_YELLOW);
       Upper.pushSprite(0, 8);
       Redraw = false;
     }
 
+    while (digitalRead(Button) == 0) {  //Loop while the button is pressed. This it to assure that we wait the button to be released after the first menu draw and beforwe we proceed further. The button is not used after this.
+      delay(CommandDelay);
+      start = millis();
+    }
+
     int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();  // Reads the "current" position of the rotary encoder
     if (new_position1 != encoder_position1) {                             //If the encoder has been moved
       if (new_position1 < encoder_position1) {
         HighlightedMenu++;
-        if (HighlightedMenu > 5) HighlightedMenu = 5;
+        if (HighlightedMenu > 5) {
+          HighlightedMenu = 5;
+          MenuTopPosition++;
+          if (MenuTopPosition > 1) MenuTopPosition = 1;
+        }
       } else {
         HighlightedMenu--;
-        if (HighlightedMenu < 1) HighlightedMenu = 1;
+        if (HighlightedMenu < 1) {
+          HighlightedMenu = 1;
+          MenuTopPosition--;
+          if (MenuTopPosition < 0) MenuTopPosition = 0;
+        }
       }
       Redraw = true;
       start = millis();
@@ -1016,29 +1061,16 @@ void SystemMenu() {
       do {
         delay(CommandDelay);
       } while (!RE1.digitalRead(SS_SWITCH));  //Loop while the rotary encoder's button is pressed
-      switch (HighlightedMenu) {
-        case 1:
-          SubMenu("1");
-          break;
-        case 2:
-          SubMenu("2");
-          break;
-        case 3:
-          SubMenu("3");
-          break;
-        case 4:
-          SubMenus[14][1] = String(MaxAirTime) + " Sec";
-          SubMenus[14][2] = String(MaxAirTime);
-          SubMenu("4");
-          break;
-        case 5:
-          SubMenu("5");
-          break;
 
-        default:
-          break;
+      if (MenuTopPosition + HighlightedMenu != 4) {  //This is the menu for Transmit timer and needs special treatment
+        SubMenu(Menu[MenuTopPosition + HighlightedMenu - 1][0]);
+      } else {
+        SubMenus[14][1] = String(MaxAirTime) + " Sec";
+        SubMenus[14][2] = String(MaxAirTime);
+        SubMenu("4");
       }
     }
+    PrintStatus();
   } while (millis() < start + 5000);
   Message = 0;
   // Now forget any encoder rotation that happened while we were in the System Menu
@@ -1061,10 +1093,17 @@ void SubMenu(String smenu) {
   String GenericText = "";
   int timeout = 3000;
   int TempMaxAirTime = MaxAirTime;
+  int TempSecondRelayActivationTime = SecondRelayActivationTime;
+  int TempSecondRelayDelay = SecondRelayDelay;
+  bool FirstParameterSet = false;  //Specifically defined for 2nd relay function
 
+  TFT_FOREGROUND = TFT_YELLOW;
+  TFT_BACKGROUND = TFT_EBONY;
   UpperClearDisplay();
   do {
     if (Redraw == true) {
+      TFT_FOREGROUND = TFT_YELLOW;
+      TFT_BACKGROUND = TFT_EBONY;
       NumberOfItems = 0;
       UpperPrintTextCentered(0, 320, 45, "----------------");
       if (smenu == "1") {
@@ -1074,18 +1113,33 @@ void SubMenu(String smenu) {
       } else if (smenu == "3") {
         UpperPrintTextCentered(0, 320, 28, "RF Power");
       } else if (smenu == "4") {
-        UpperPrintTextCentered(0, 320, 28, "Transmit time");
+        UpperPrintTextCentered(0, 320, 28, "Transmit timer");
       } else if (smenu == "5") {
+        UpperPrintTextCentered(0, 320, 28, "2nd Relay");
+      } else if (smenu == "6") {
         UpperPrintTextCentered(0, 320, 28, "Save parameters");
       }
 
-      for (i = 0; i < 17; i++) {
+      for (i = 0; i < 18; i++) {
         if (String(SubMenus[i][0]) == smenu) {
           if (NumberOfItems + 1 == HighlightedMenu) TFT_BACKGROUND = TFT_RED;
-          if (smenu != "4") {
+          if (smenu != "4" && smenu != "5") {
             UpperPrintTextCentered(0, 320, NumberOfItems * 26 + 65, SubMenus[i][1]);
-          } else {
+          } else if (smenu == "4") {
             UpperPrintTextCentered(0, 320, 1 * 26 + 65, SubMenus[i][1]);
+          } else if (smenu == "5") {
+            TFT_BACKGROUND = TFT_EBONY;
+            UpperPrintTextCentered(0, 160, 1 * 26 + 65, "Time");
+            UpperPrintTextCentered(161, 320, 1 * 26 + 65, "Delay");
+            if (FirstParameterSet == false) {
+              UpperPrintTextCentered(161, 320, 2 * 26 + 65, String(TempSecondRelayDelay));
+              TFT_BACKGROUND = TFT_RED;
+              UpperPrintTextCentered(0, 160, 2 * 26 + 65, String(TempSecondRelayActivationTime));
+            } else {
+              UpperPrintTextCentered(0, 160, 2 * 26 + 65, String(TempSecondRelayActivationTime));
+              TFT_BACKGROUND = TFT_RED;
+              UpperPrintTextCentered(161, 320, 2 * 26 + 65, String(TempSecondRelayDelay));
+            }
           }
           TFT_BACKGROUND = TFT_EBONY;
           NumberOfItems++;
@@ -1097,7 +1151,7 @@ void SubMenu(String smenu) {
 
     int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();  // Reads the current position of the rotary encoder
     if (new_position1 != encoder_position1) {                             //If the encoder has been moved
-      if (smenu != "4") {                                                 //if we are not in the 4th menu...
+      if (smenu != "4" && smenu != "5") {                                 //if we are not in the 4th menu...
         if (new_position1 < encoder_position1) {
           HighlightedMenu++;
           if (HighlightedMenu > NumberOfItems) HighlightedMenu = NumberOfItems;
@@ -1105,7 +1159,7 @@ void SubMenu(String smenu) {
           HighlightedMenu--;
           if (HighlightedMenu < 1) HighlightedMenu = 1;
         }
-      } else {  //if we are in the 4th menu...
+      } else if (smenu == "4") {  //if we are in the 4th menu...
         if (new_position1 < encoder_position1) {
           TempMaxAirTime++;
           if (TempMaxAirTime > 1000) TempMaxAirTime = 999;
@@ -1115,8 +1169,25 @@ void SubMenu(String smenu) {
         }
         SubMenus[14][1] = String(TempMaxAirTime) + " Sec";
         SubMenus[14][2] = String(TempMaxAirTime);
+      } else if (smenu == "5") {  //if we are in the 5th menu...
+        if (FirstParameterSet == false) {
+          if (new_position1 < encoder_position1) {
+            TempSecondRelayActivationTime++;
+            if (TempSecondRelayActivationTime > 10) TempSecondRelayActivationTime = 10;
+          } else {
+            TempSecondRelayActivationTime--;
+            if (TempSecondRelayActivationTime < -10) TempSecondRelayActivationTime = -10;
+          }
+        } else {
+          if (new_position1 < encoder_position1) {
+            TempSecondRelayDelay++;
+            if (TempSecondRelayDelay > 20) TempSecondRelayDelay = 20;
+          } else {
+            TempSecondRelayDelay--;
+            if (TempSecondRelayDelay < 0) TempSecondRelayDelay = 0;
+          }
+        }
       }
-
       Redraw = true;
       start = millis();
     }
@@ -1155,6 +1226,15 @@ void SubMenu(String smenu) {
         GenericText = SubMenus[i][2];
         MaxAirTime = GenericText.toInt();
       } else if (smenu == "5") {
+        if (FirstParameterSet == false) {
+          FirstParameterSet = true;
+          Redraw = true;
+        } else {
+          SecondRelayActivationTime = TempSecondRelayActivationTime;
+          SecondRelayDelay = TempSecondRelayDelay;
+          FirstParameterSet = false;
+        }
+      } else if (smenu == "6") {
         GenericText = SubMenus[i][2];
         if (GenericText == "1") {
           preferences.begin("ATCK", false);
@@ -1165,15 +1245,21 @@ void SubMenu(String smenu) {
           preferences.putInt("Steps", Steps);
           preferences.putInt("Filter", SelectedFilter);
           preferences.putInt("MaxAirTime", MaxAirTime);
+          preferences.putInt("SRAT", SecondRelayActivationTime);
+          preferences.putInt("SRD", SecondRelayDelay);
           preferences.end();
         } else {
         }
       }
-      start = 0;
-      timeout = 0;
+      if (FirstParameterSet == true) {
+        start = millis();
+      } else {
+        start = 0;
+        timeout = 0;
+      }
     }
+    PrintStatus();
   } while (millis() < start + timeout);
-  //PreviousPower = 0;  //To force status update
 }
 
 int ReadAntenna(int MainSub) {
@@ -1354,21 +1440,23 @@ void FlushSerialInput() {
 }
 
 void MenuHandle_1stEncoder() {
-
-  start = millis();
   int HighlightedMenu = ExtendedParameter1;  //The menu that is highlighted is the one already chosen for this encoder
   bool Redraw = true;
 
   do {
-    delay(CommandDelay);
+    PrintStatus();
   } while (!RE1.digitalRead(SS_SWITCH));  //Loop while the button is pressed
   RE1.setEncoderPosition(0);
+
+  start = millis();
 
   TFT_FOREGROUND = TFT_YELLOW;
   TFT_BACKGROUND = TFT_EBONY;
   UpperClearDisplay();
 
   do {
+    TFT_FOREGROUND = TFT_YELLOW;
+    TFT_BACKGROUND = TFT_EBONY;
     if (Redraw == true) {
       Upper.setFreeFont(&FreeSansBold12pt7b);
       UpperPrintTextCentered(0, 320, 43, "----------------");
@@ -1446,6 +1534,7 @@ void MenuHandle_1stEncoder() {
       }
       break;
     }
+    PrintStatus();
   } while (millis() < start + 5000);
   Message = 0;
 }
@@ -1466,6 +1555,8 @@ void MenuHandle_2ndEncoder() {
   UpperClearDisplay();
 
   do {
+    TFT_FOREGROUND = TFT_YELLOW;
+    TFT_BACKGROUND = TFT_EBONY;
     if (Redraw == true) {
       Upper.setFreeFont(&FreeSansBold12pt7b);
       UpperPrintTextCentered(0, 320, 43, "----------------");
@@ -1543,6 +1634,7 @@ void MenuHandle_2ndEncoder() {
       }
       break;
     }
+    PrintStatus();
   } while (millis() < start + 5000);
   Message = 0;
 }
@@ -1563,6 +1655,8 @@ void MenuHandle_3rdEncoder() {
   UpperClearDisplay();
 
   do {
+    TFT_FOREGROUND = TFT_YELLOW;
+    TFT_BACKGROUND = TFT_EBONY;
     if (Redraw == true) {
       Upper.setFreeFont(&FreeSansBold12pt7b);
       UpperPrintTextCentered(0, 320, 43, "----------------");
@@ -1640,6 +1734,7 @@ void MenuHandle_3rdEncoder() {
       }
       break;
     }
+    PrintStatus();
   } while (millis() < start + 5000);
   Message = 0;
 }
@@ -1660,6 +1755,8 @@ void MenuHandle_4thEncoder() {
   UpperClearDisplay();
 
   do {
+    TFT_FOREGROUND = TFT_YELLOW;
+    TFT_BACKGROUND = TFT_EBONY;
     if (Redraw == true) {
       Upper.setFreeFont(&FreeSansBold12pt7b);
       UpperPrintTextCentered(0, 320, 43, "----------------");
@@ -1737,6 +1834,7 @@ void MenuHandle_4thEncoder() {
       }
       break;
     }
+    PrintStatus();
   } while (millis() < start + 5000);
   Message = 0;
 }
@@ -1859,6 +1957,8 @@ void Read1stEncoder() {
       }
       encoder_position1 = new_position1;
 
+      TFT_FOREGROUND = TFT_YELLOW;
+      TFT_BACKGROUND = TFT_EBONY;
       switch (ExtendedParameter1) {
         case 1:
           Upper.setFreeFont(&FreeSansBold24pt7b);
@@ -1896,13 +1996,11 @@ void Read1stEncoder() {
           TFT_BACKGROUND = TFT_BLACK;
           LowerPrintText(1, 28, "PWR: " + String(PowerLevel) + "W");
           Lower.pushSprite(0, 181);
-          TFT_BACKGROUND = TFT_EBONY;
           PreviousPower = PowerLevel;  //In order to avoid to force status update because of the power change
           break;
         case 7:
           //The following block of code is done to avoid some flickering while changing the frequentcy on the tft screen
           Upper.setFreeFont(&FreeSansBold24pt7b);
-          TFT_FOREGROUND = TFT_YELLOW;
           if (CurrentFrequencyRX > 9999999) {
             UpperPrintTextCentered(0, 320, 100, String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8));
           } else {
@@ -1923,6 +2021,7 @@ void Read1stEncoder() {
       RE1.setEncoderPosition(0);
       return;
     }
+    PrintStatus();
   } while (millis() < start + 1000);
   encoder_position1 = 0;
   RE1.setEncoderPosition(0);
@@ -2632,4 +2731,18 @@ void Interupt1() {
   if (digitalRead(TXGND) == 0) {
     start = 0;  // Exit from possible menus by setting to 0 all user input wait time. Give priority to handle the transmition.
   }
+}
+
+void SecondCoreTaskCode(void* pvParameters) {
+  do {
+    if (millis() > SecondRelayActivationMillis && millis() < SecondRelayDeactivationMillis && RLY1 == false) {
+      Relay.SET_RLY1(I2C_REL_ADD, HIGH);
+      RLY1 = true;
+    }
+    if (millis() > SecondRelayDeactivationMillis && RLY1 == true) {
+      Relay.SET_RLY1(I2C_REL_ADD, LOW);
+      RLY1 = false;
+    }
+    delay(CommandDelay);
+  } while (true);
 }
