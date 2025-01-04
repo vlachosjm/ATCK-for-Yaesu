@@ -92,7 +92,7 @@ uint16_t TFT_FOREGROUND = TFT_YELLOW;  //This variable holds the foreground colo
 
 //Loading the menu data on a string array00
 String SubMenus[18][3] = { { "1", "100Hz", "100" }, { "1", "250Hz", "250" }, { "1", "500Hz", "500" }, { "1", "1KHz", "1000" }, { "2", "  None ", "0" }, { "2", " 12 KHz", "1" }, { "2", "  3 KHz", "2" }, { "2", " 600 Hz", "4" }, { "2", " 300 Hz", "5" }, { "3", "5W", "5" }, { "3", "20W", "20" }, { "3", "40W", "40" }, { "3", "100W", "100" }, { "3", "200W", "200" }, { "4", "", "" }, { "5", "", "" }, { "6", "No", "0" }, { "6", "Yes", "1" } };
-String Menu[6][2] = { { "1", "Frequency steps" }, { "2", "Roffing filter" }, { "3", "RF Power" }, { "4", "Transmit timer" }, { "5", "2nd relay" }, { "6", "Save parameters" } };
+String Menu[6][2] = { { "1", "Frequency steps" }, { "2", "Roofing filter" }, { "3", "RF Power" }, { "4", "Transmit timer" }, { "5", "2nd relay" }, { "6", "Save parameters" } };
 
 unsigned long ONAirStartTime;  //Marks the time that on air activity started
 int ONAirTime;                 //Actual time on air in seconds;
@@ -1109,7 +1109,7 @@ void SubMenu(String smenu) {
       if (smenu == "1") {
         UpperPrintTextCentered(0, 320, 28, "Frequency steps");
       } else if (smenu == "2") {
-        UpperPrintTextCentered(0, 320, 28, "Roffing filter");
+        UpperPrintTextCentered(0, 320, 28, "Roofing filter");
       } else if (smenu == "3") {
         UpperPrintTextCentered(0, 320, 28, "RF Power");
       } else if (smenu == "4") {
