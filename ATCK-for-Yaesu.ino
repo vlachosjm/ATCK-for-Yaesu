@@ -14,6 +14,7 @@
 #include <TFT_eSPI.h>         //To handle the TFT screen
 #include <mLink.h>            //The library needed for the I2C relays from Hobby Components Ltd
 #include <Preferences.h>      //The library needed to store and retrieve data from the on-board non-volatile memory
+//#include <stdarg.h>           //To handle undefined number of arguments in functions
 
 #define BAUD_RATE 38400  //Sets the speed of the communication with the transceiver
 #define RXPIN 4          //RX pin for the serial communication with the transceiver
@@ -90,10 +91,6 @@ int32_t encoder_position4;  //The value of the fourth encoder
 uint16_t TFT_BACKGROUND = TFT_EBONY;   //This variable holds the backgournd color of the disaplay
 uint16_t TFT_FOREGROUND = TFT_YELLOW;  //This variable holds the foreground color of the disaplay
 
-//Loading the menu data on a string array00
-String SubMenus[18][3] = { { "1", "100Hz", "100" }, { "1", "250Hz", "250" }, { "1", "500Hz", "500" }, { "1", "1KHz", "1000" }, { "2", "  None ", "0" }, { "2", " 12 KHz", "1" }, { "2", "  3 KHz", "2" }, { "2", " 600 Hz", "4" }, { "2", " 300 Hz", "5" }, { "3", "5W", "5" }, { "3", "20W", "20" }, { "3", "40W", "40" }, { "3", "100W", "100" }, { "3", "200W", "200" }, { "4", "", "" }, { "5", "", "" }, { "6", "No", "0" }, { "6", "Yes", "1" } };
-String Menu[6][2] = { { "1", "Frequency steps" }, { "2", "Roofing filter" }, { "3", "RF Power" }, { "4", "Transmit timer" }, { "5", "2nd relay" }, { "6", "Save parameters" } };
-
 unsigned long ONAirStartTime;  //Marks the time that on air activity started
 int ONAirTime;                 //Actual time on air in seconds;
 int MaxAirTime;                //Maximum air time in second. When we reach 80% of the end of time the timer on the display turns red
@@ -133,7 +130,7 @@ void setup() {
   SecondRelayDelay = preferences.getInt("SRD", 0);
   preferences.end();
 
-  //Serial.begin(115200);                                //Initiate the serial monitor port
+  Serial.begin(115200);                                //Initiate the serial monitor port
   Serial2.begin(BAUD_RATE, SERIAL_8N1, RXPIN, TXPIN);  //Initiate Serial port
   Wire.begin(8, 9);                                    //Initiate the I2C
   Relay.init();                                        //Initalize the relay module
@@ -192,40 +189,30 @@ void loop() {
   String TimeText;                //To hold the on air time string
   int MPO;                        //Max Power Out
 
-  int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();  // If 1st encoder moved
-  if (encoder_position1 != new_position1) {
-    Read1stEncoder();  //To manage the turn of the encoder when we are not in a menu
+  //If an encoder has moved...
+  if (encoder_position1 != RotatorDirection * RE1.getEncoderPosition() || encoder_position2 != RotatorDirection * RE2.getEncoderPosition() || encoder_position3 != RotatorDirection * RE3.getEncoderPosition() || encoder_position4 != RotatorDirection * RE4.getEncoderPosition()) {
+    ReadEncoder();
   }
 
-  int32_t new_position2 = RotatorDirection * RE2.getEncoderPosition();  // If 2nd encoder moved
-  if (encoder_position2 != new_position2) {
-    Read2ndEncoder();  //To manage the turn of the 2nd encoder
-  }
 
-  int32_t new_position3 = RotatorDirection * RE3.getEncoderPosition();  // If 3rd encoder moved
-  if (encoder_position3 != new_position3) {
-    Read3rdEncoder();  //To manage the turn of the 3rd encoder
-  }
-
-  int32_t new_position4 = RotatorDirection * RE4.getEncoderPosition();  // If 4th encoder moved
-  if (encoder_position4 != new_position4) {
-    Read4thEncoder();  //To manage the turn of the 4th encoder
-  }
-
-  //Check if an encoder's button is pressed
+  //Check if an encoder's button is pressed and released
   if (!RE1.digitalRead(SS_SWITCH)) {
+    while (!RE1.digitalRead(SS_SWITCH)) {}
     MenuHandle_1stEncoder();
   }
 
   if (!RE2.digitalRead(SS_SWITCH)) {
+    while (!RE2.digitalRead(SS_SWITCH)) {}
     MenuHandle_2ndEncoder();
   }
 
   if (!RE3.digitalRead(SS_SWITCH)) {
+    while (!RE3.digitalRead(SS_SWITCH)) {}
     MenuHandle_3rdEncoder();
   }
 
   if (!RE4.digitalRead(SS_SWITCH)) {
+    while (!RE4.digitalRead(SS_SWITCH)) {}
     MenuHandle_4thEncoder();
   }
 
@@ -242,7 +229,7 @@ void loop() {
     CurrentFrequencyTX = ReadFrequency(MAINSUBTX);     //Check the current frequency of the VFO that has the transmision
     Tuned = IsInTunedFrequencies(CurrentFrequencyTX);  //Check if we are still in tuned range
 
-    //Here we see if the Tune button is longpressed and need to tune, or shortpressed. I don't have an action assigned to short press
+    //Here we see if the Tune button is shortpressed and need to tune, or longpressed. I don't have an action assigned to short press
     if (digitalRead(Button) == 0) {  //if the tune button is pressed...
       ButtonPressTime = millis();    //Mark the time that the button was pressed...
 
@@ -255,7 +242,7 @@ void loop() {
       if (digitalRead(Button) == 0) {  // ...and if the button is still pressed we set the ButtonShortPress to false and we open the system menu
         ButtonShortPress = false;
         SystemMenu();
-      } else {  // ...otherwise we set the ButtonShortPress to false and proceed to tuning.
+      } else {  // ...otherwise we set the ButtonShortPress to true and proceed to tuning.
         ButtonShortPress = true;
       }
     }
@@ -992,274 +979,235 @@ void PrintStatus(void) {
 }
 
 void SystemMenu() {
-  int HighlightedMenu = 1;  //The menu that is highlighted
-  bool Redraw = true;
-  uint16_t SwapColors;
-  int MenuTopPosition = 0;  // Show which menu option is on top (we have only 5 options to dsisplay). 0 is the first one.
+  int ChosenMenu = DisplayMenu(7, 1, 1, "System Menu", "Frequency steps", "Roofing filter", "RF Power", "Transmit timer", "2nd relay", "Save parameters");
 
-  TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_EBONY;
-  UpperClearDisplay();
+  if (ChosenMenu > 0) {
+    SubMenu(String(ChosenMenu));
+  }
 
-  start = millis();
-
-  do {
-    if (Redraw == true) {
-      TFT_FOREGROUND = TFT_YELLOW;
-      TFT_BACKGROUND = TFT_EBONY;
-      Upper.setFreeFont(&FreeSansBold12pt7b);
-      UpperPrintTextCentered(0, 320, 43, "--------------------");
-      UpperPrintTextCentered(0, 320, 28, "System Menu");
-      if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 65, Menu[MenuTopPosition][1]);
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 91, Menu[MenuTopPosition + 1][1]);
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 117, Menu[MenuTopPosition + 2][1]);
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 143, Menu[MenuTopPosition + 3][1]);
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 320, 169, Menu[MenuTopPosition + 4][1]);
-      TFT_BACKGROUND = TFT_EBONY;
-      //Upper.drawRect(100, 117, 320 - 2 * 100, 1, TFT_YELLOW);
-      Upper.pushSprite(0, 8);
-      Redraw = false;
-    }
-
-    while (digitalRead(Button) == 0) {  //Loop while the button is pressed. This it to assure that we wait the button to be released after the first menu draw and beforwe we proceed further. The button is not used after this.
-      delay(CommandDelay);
-      start = millis();
-    }
-
-    int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();  // Reads the "current" position of the rotary encoder
-    if (new_position1 != encoder_position1) {                             //If the encoder has been moved
-      if (new_position1 < encoder_position1) {
-        HighlightedMenu++;
-        if (HighlightedMenu > 5) {
-          HighlightedMenu = 5;
-          MenuTopPosition++;
-          if (MenuTopPosition > 1) MenuTopPosition = 1;
-        }
-      } else {
-        HighlightedMenu--;
-        if (HighlightedMenu < 1) {
-          HighlightedMenu = 1;
-          MenuTopPosition--;
-          if (MenuTopPosition < 0) MenuTopPosition = 0;
-        }
-      }
-      Redraw = true;
-      start = millis();
-    }
-    encoder_position1 = new_position1;  // Updates the previous encoder position with the current one
-
-    if (!RE1.digitalRead(SS_SWITCH)) {  // If the rotary encoder's button is pressed
-      do {
-        delay(CommandDelay);
-      } while (!RE1.digitalRead(SS_SWITCH));  //Loop while the rotary encoder's button is pressed
-
-      if (MenuTopPosition + HighlightedMenu != 4) {  //This is the menu for Transmit timer and needs special treatment
-        SubMenu(Menu[MenuTopPosition + HighlightedMenu - 1][0]);
-      } else {
-        SubMenus[14][1] = String(MaxAirTime) + " Sec";
-        SubMenus[14][2] = String(MaxAirTime);
-        SubMenu("4");
-      }
-    }
-    PrintStatus();
-  } while (millis() < start + 5000);
   Message = 0;
-  // Now forget any encoder rotation that happened while we were in the System Menu
-  RE1.setEncoderPosition(0);
-  RE2.setEncoderPosition(0);
-  RE3.setEncoderPosition(0);
-  RE4.setEncoderPosition(0);
-  encoder_position1 = 0;
-  encoder_position2 = 0;
-  encoder_position3 = 0;
-  encoder_position4 = 0;
 }
 
 void SubMenu(String smenu) {
   start = millis();
-  int HighlightedMenu = 1;
+  int HighlightedMenu = 1;  //To be removed
   bool Redraw = true;
   int i, j;
-  int NumberOfItems = 0;
-  String GenericText = "";
+  String GenericText = "";  //To be removed
   int timeout = 3000;
   int TempMaxAirTime = MaxAirTime;
   int TempSecondRelayActivationTime = SecondRelayActivationTime;
   int TempSecondRelayDelay = SecondRelayDelay;
   bool FirstParameterSet = false;  //Specifically defined for 2nd relay function
+  int ChosenMenu = 0;
 
-  TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_EBONY;
-  UpperClearDisplay();
-  do {
-    if (Redraw == true) {
-      TFT_FOREGROUND = TFT_YELLOW;
-      TFT_BACKGROUND = TFT_EBONY;
-      NumberOfItems = 0;
-      UpperPrintTextCentered(0, 320, 45, "----------------");
-      if (smenu == "1") {
-        UpperPrintTextCentered(0, 320, 28, "Frequency steps");
-      } else if (smenu == "2") {
-        UpperPrintTextCentered(0, 320, 28, "Roofing filter");
-      } else if (smenu == "3") {
-        UpperPrintTextCentered(0, 320, 28, "RF Power");
-      } else if (smenu == "4") {
-        UpperPrintTextCentered(0, 320, 28, "Transmit timer");
-      } else if (smenu == "5") {
-        UpperPrintTextCentered(0, 320, 28, "2nd Relay");
-      } else if (smenu == "6") {
-        UpperPrintTextCentered(0, 320, 28, "Save parameters");
+  switch (smenu.toInt()) {
+    case 1:
+      ChosenMenu = DisplayMenu(5, 1, 1, "Frequency steps", "100Hz", "250Hz", "500Hz", "1KHz");
+      break;
+    case 2:
+      ChosenMenu = DisplayMenu(6, 1, 1, "Roofing filter", "  None ", " 12 KHz", "  3 KHz", " 600 Hz", " 300 Hz");
+      break;
+    case 3:
+      ChosenMenu = DisplayMenu(7, 1, 1, "RF Power", "5W", "25W", "50W", "100W", "150W", "200W");
+      break;
+    case 6:
+      ChosenMenu = DisplayMenu(3, 1, 1, "Save parameters", "No", "Yes");
+      break;
+    default:
+      break;
+  }
+
+  if (ChosenMenu == 0) {  //If no standard option was chosen (smenu 4 and 5)
+
+    TFT_FOREGROUND = TFT_YELLOW;
+    TFT_BACKGROUND = TFT_EBONY;
+    UpperClearDisplay();
+
+    UpperPrintTextCentered(0, 320, 43, "--------------------");
+    if (smenu == "4") {
+      UpperPrintTextCentered(0, 320, 28, "Transmit timer");
+    } else if (smenu == "5") {
+      UpperPrintTextCentered(0, 320, 28, "2nd Relay");
+    }
+
+    do {
+      if (Redraw == true) {
+        TFT_FOREGROUND = TFT_YELLOW;
+        TFT_BACKGROUND = TFT_EBONY;
+
+
+        if (smenu == "4") {
+          TFT_BACKGROUND = TFT_RED;
+          UpperPrintTextCentered(0, 320, 1 * 26 + 65, String(TempMaxAirTime) + " Sec");
+        } else if (smenu == "5") {
+          TFT_BACKGROUND = TFT_EBONY;
+          UpperPrintTextCentered(0, 160, 1 * 26 + 65, "Time");
+          UpperPrintTextCentered(161, 320, 1 * 26 + 65, "Delay");
+          if (FirstParameterSet == false) {
+            UpperPrintTextCentered(161, 320, 2 * 26 + 65, String(TempSecondRelayDelay));
+            TFT_BACKGROUND = TFT_RED;
+            UpperPrintTextCentered(0, 160, 2 * 26 + 65, String(TempSecondRelayActivationTime));
+          } else {
+            UpperPrintTextCentered(0, 160, 2 * 26 + 65, String(TempSecondRelayActivationTime));
+            TFT_BACKGROUND = TFT_RED;
+            UpperPrintTextCentered(161, 320, 2 * 26 + 65, String(TempSecondRelayDelay));
+          }
+        }
+        TFT_BACKGROUND = TFT_EBONY;
+
+        Upper.pushSprite(0, 8);
+        Redraw = false;
       }
 
-      for (i = 0; i < 18; i++) {
-        if (String(SubMenus[i][0]) == smenu) {
-          if (NumberOfItems + 1 == HighlightedMenu) TFT_BACKGROUND = TFT_RED;
-          if (smenu != "4" && smenu != "5") {
-            UpperPrintTextCentered(0, 320, NumberOfItems * 26 + 65, SubMenus[i][1]);
-          } else if (smenu == "4") {
-            UpperPrintTextCentered(0, 320, 1 * 26 + 65, SubMenus[i][1]);
-          } else if (smenu == "5") {
-            TFT_BACKGROUND = TFT_EBONY;
-            UpperPrintTextCentered(0, 160, 1 * 26 + 65, "Time");
-            UpperPrintTextCentered(161, 320, 1 * 26 + 65, "Delay");
-            if (FirstParameterSet == false) {
-              UpperPrintTextCentered(161, 320, 2 * 26 + 65, String(TempSecondRelayDelay));
-              TFT_BACKGROUND = TFT_RED;
-              UpperPrintTextCentered(0, 160, 2 * 26 + 65, String(TempSecondRelayActivationTime));
+      int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();  // Reads the current position of the rotary encoder
+      if (new_position1 != encoder_position1) {                             //If the encoder has been moved
+        if (smenu == "4") {                                                 //if we are in the 4th menu...
+          if (new_position1 < encoder_position1) {
+            TempMaxAirTime++;
+            if (TempMaxAirTime > 1000) TempMaxAirTime = 999;
+          } else {
+            TempMaxAirTime--;
+            if (TempMaxAirTime < 1) TempMaxAirTime = 1;
+          }
+          //SubMenus[14][1] = String(TempMaxAirTime) + " Sec";
+          //SubMenus[14][2] = String(TempMaxAirTime);
+        } else if (smenu == "5") {  //if we are in the 5th menu...
+          if (FirstParameterSet == false) {
+            if (new_position1 < encoder_position1) {
+              TempSecondRelayActivationTime++;
+              if (TempSecondRelayActivationTime > 10) TempSecondRelayActivationTime = 10;
             } else {
-              UpperPrintTextCentered(0, 160, 2 * 26 + 65, String(TempSecondRelayActivationTime));
-              TFT_BACKGROUND = TFT_RED;
-              UpperPrintTextCentered(161, 320, 2 * 26 + 65, String(TempSecondRelayDelay));
+              TempSecondRelayActivationTime--;
+              if (TempSecondRelayActivationTime < -10) TempSecondRelayActivationTime = -10;
+            }
+          } else {
+            if (new_position1 < encoder_position1) {
+              TempSecondRelayDelay++;
+              if (TempSecondRelayDelay > 20) TempSecondRelayDelay = 20;
+            } else {
+              TempSecondRelayDelay--;
+              if (TempSecondRelayDelay < 0) TempSecondRelayDelay = 0;
             }
           }
-          TFT_BACKGROUND = TFT_EBONY;
-          NumberOfItems++;
         }
-      }
-      Upper.pushSprite(0, 8);
-      Redraw = false;
-    }
-
-    int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();  // Reads the current position of the rotary encoder
-    if (new_position1 != encoder_position1) {                             //If the encoder has been moved
-      if (smenu != "4" && smenu != "5") {                                 //if we are not in the 4th menu...
-        if (new_position1 < encoder_position1) {
-          HighlightedMenu++;
-          if (HighlightedMenu > NumberOfItems) HighlightedMenu = NumberOfItems;
-        } else {
-          HighlightedMenu--;
-          if (HighlightedMenu < 1) HighlightedMenu = 1;
-        }
-      } else if (smenu == "4") {  //if we are in the 4th menu...
-        if (new_position1 < encoder_position1) {
-          TempMaxAirTime++;
-          if (TempMaxAirTime > 1000) TempMaxAirTime = 999;
-        } else {
-          TempMaxAirTime--;
-          if (TempMaxAirTime < 1) TempMaxAirTime = 1;
-        }
-        SubMenus[14][1] = String(TempMaxAirTime) + " Sec";
-        SubMenus[14][2] = String(TempMaxAirTime);
-      } else if (smenu == "5") {  //if we are in the 5th menu...
-        if (FirstParameterSet == false) {
-          if (new_position1 < encoder_position1) {
-            TempSecondRelayActivationTime++;
-            if (TempSecondRelayActivationTime > 10) TempSecondRelayActivationTime = 10;
-          } else {
-            TempSecondRelayActivationTime--;
-            if (TempSecondRelayActivationTime < -10) TempSecondRelayActivationTime = -10;
-          }
-        } else {
-          if (new_position1 < encoder_position1) {
-            TempSecondRelayDelay++;
-            if (TempSecondRelayDelay > 20) TempSecondRelayDelay = 20;
-          } else {
-            TempSecondRelayDelay--;
-            if (TempSecondRelayDelay < 0) TempSecondRelayDelay = 0;
-          }
-        }
-      }
-      Redraw = true;
-      start = millis();
-    }
-    encoder_position1 = new_position1;  // Updates the current position of the rotary encoder
-
-
-    //Now we will see if the button was pressed and will take action
-    if (!RE1.digitalRead(SS_SWITCH)) {  // Here we see if the button was pressed
-      do {
-        delay(CommandDelay);
-      } while (!RE1.digitalRead(SS_SWITCH));  //Loop while it is pressed
-
-      //Now we search which option we have actually chosen
-      j = 0;
-      for (i = 0; i < 19; i++) {
-        if (String(SubMenus[i][0]) == smenu) {
-          j++;
-          if (j == HighlightedMenu) {
-            break;
-          }
-        }
-      }
-
-      //Now we take action
-      if (smenu == "1") {
-        GenericText = SubMenus[i][2];
-        Steps = GenericText.toInt();
-      } else if (smenu == "2") {
-        GenericText = SubMenus[i][2];
-        SelectedFilter = GenericText.toInt();
-      } else if (smenu == "3") {
-        //Set power
-        GenericText = SubMenus[i][2];
-        SetPower(GenericText.toInt());
-      } else if (smenu == "4") {
-        GenericText = SubMenus[i][2];
-        MaxAirTime = GenericText.toInt();
-      } else if (smenu == "5") {
-        if (FirstParameterSet == false) {
-          FirstParameterSet = true;
-          Redraw = true;
-        } else {
-          SecondRelayActivationTime = TempSecondRelayActivationTime;
-          SecondRelayDelay = TempSecondRelayDelay;
-          FirstParameterSet = false;
-        }
-      } else if (smenu == "6") {
-        GenericText = SubMenus[i][2];
-        if (GenericText == "1") {
-          preferences.begin("ATCK", false);
-          preferences.putInt("Parameter1", ExtendedParameter1);
-          preferences.putInt("Parameter2", ExtendedParameter2);
-          preferences.putInt("Parameter3", ExtendedParameter3);
-          preferences.putInt("Parameter4", ExtendedParameter4);
-          preferences.putInt("Steps", Steps);
-          preferences.putInt("Filter", SelectedFilter);
-          preferences.putInt("MaxAirTime", MaxAirTime);
-          preferences.putInt("SRAT", SecondRelayActivationTime);
-          preferences.putInt("SRD", SecondRelayDelay);
-          preferences.end();
-        } else {
-        }
-      }
-      if (FirstParameterSet == true) {
+        Redraw = true;
         start = millis();
-      } else {
-        start = 0;
-        timeout = 0;
+      }
+      encoder_position1 = new_position1;  // Updates the current position of the rotary encoder
+
+
+      //Now we will see if the button was pressed (for smenu 4 and 5) and will take action
+      if (!RE1.digitalRead(SS_SWITCH)) {  // Here we see if the button was pressed
+        do {
+          delay(CommandDelay);
+        } while (!RE1.digitalRead(SS_SWITCH));  //Loop while it is pressed
+
+        //Now we take action
+        if (smenu == "4") {
+          //GenericText = SubMenus[i][2];
+          //MaxAirTime = GenericText.toInt();
+          MaxAirTime = TempMaxAirTime;
+        } else if (smenu == "5") {
+          if (FirstParameterSet == false) {
+            FirstParameterSet = true;
+            Redraw = true;
+          } else {
+            SecondRelayActivationTime = TempSecondRelayActivationTime;
+            SecondRelayDelay = TempSecondRelayDelay;
+            FirstParameterSet = false;
+          }
+        }
+        if (FirstParameterSet == true) {
+          start = millis();
+        } else {
+          start = 0;
+          timeout = 0;
+        }
+      }
+
+      PrintStatus();
+    } while (millis() < start + timeout);
+  } else {  //Now we will see if a menu option was chosen and will take action
+
+    //Now we take action
+    if (smenu == "1") {
+      switch (ChosenMenu) {
+        case 1:
+          Steps = 100;
+          break;
+        case 2:
+          Steps = 250;
+          break;
+        case 3:
+          Steps = 500;
+          break;
+        case 4:
+          Steps = 1000;
+          break;
+        default:
+          break;
+      }
+    } else if (smenu == "2") {
+      switch (ChosenMenu) {
+        case 1:
+          SelectedFilter = 0;
+          break;
+        case 2:
+          SelectedFilter = 1;
+          break;
+        case 3:
+          SelectedFilter = 2;
+          break;
+        case 4:
+          SelectedFilter = 4;
+          break;
+        case 5:
+          SelectedFilter = 5;
+          break;
+        default:
+          break;
+      }
+    } else if (smenu == "3") {
+      //Set power
+      switch (ChosenMenu) {
+        case 1:
+          SetPower(5);
+          break;
+        case 2:
+          SetPower(25);
+          break;
+        case 3:
+          SetPower(50);
+          break;
+        case 4:
+          SetPower(100);
+          break;
+        case 5:
+          SetPower(150);
+          break;
+        case 6:
+          SetPower(200);
+          break;
+        default:
+          break;
+      }
+    } else if (smenu == "6") {
+      if (ChosenMenu == 2) {
+        preferences.begin("ATCK", false);
+        preferences.putInt("Parameter1", ExtendedParameter1);
+        preferences.putInt("Parameter2", ExtendedParameter2);
+        preferences.putInt("Parameter3", ExtendedParameter3);
+        preferences.putInt("Parameter4", ExtendedParameter4);
+        preferences.putInt("Steps", Steps);
+        preferences.putInt("Filter", SelectedFilter);
+        preferences.putInt("MaxAirTime", MaxAirTime);
+        preferences.putInt("SRAT", SecondRelayActivationTime);
+        preferences.putInt("SRD", SecondRelayDelay);
+        preferences.end();
       }
     }
-    PrintStatus();
-  } while (millis() < start + timeout);
+  }
 }
 
 int ReadAntenna(int MainSub) {
@@ -1441,412 +1389,68 @@ void FlushSerialInput() {
 
 void MenuHandle_1stEncoder() {
   int HighlightedMenu = ExtendedParameter1;  //The menu that is highlighted is the one already chosen for this encoder
-  bool Redraw = true;
 
-  do {
-    PrintStatus();
-  } while (!RE1.digitalRead(SS_SWITCH));  //Loop while the button is pressed
-  RE1.setEncoderPosition(0);
+  HighlightedMenu = DisplayMenu(8, ExtendedParameter1, 1, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
 
-  start = millis();
+  if (HighlightedMenu != 0) {
+    ExtendedParameter1 = HighlightedMenu;
+  }
 
-  TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_EBONY;
-  UpperClearDisplay();
-
-  do {
-    TFT_FOREGROUND = TFT_YELLOW;
-    TFT_BACKGROUND = TFT_EBONY;
-    if (Redraw == true) {
-      Upper.setFreeFont(&FreeSansBold12pt7b);
-      UpperPrintTextCentered(0, 320, 43, "----------------");
-      UpperPrintTextCentered(0, 320, 28, "Select parameter");
-      if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 65, "Squelch");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 91, "Memory Ch.");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 117, "Notch");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 143, "Contour width");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 169, "Contour level");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 6) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(160, 320, 65, "Power level");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 7) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(160, 320, 91, "Frequency");
-      TFT_BACKGROUND = TFT_EBONY;
-      Upper.pushSprite(0, 8);
-
-      Redraw = false;
-    }
-
-    int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();
-    if (new_position1 != 0) {  // If the position has changed ...
-      if (new_position1 < 0) {
-        HighlightedMenu += abs(new_position1);
-        if (HighlightedMenu > 7) HighlightedMenu = 7;
-      } else {
-        HighlightedMenu -= abs(new_position1);
-        if (HighlightedMenu < 1) HighlightedMenu = 1;
-      }
-      RE1.setEncoderPosition(0);
-      Redraw = true;
-      start = millis();
-    }
-
-
-    if (!RE1.digitalRead(SS_SWITCH)) {  // Reads if the button on the encoder is pressed
-      do {
-        delay(CommandDelay);
-      } while (!RE1.digitalRead(SS_SWITCH));  //Loop while it is pressed
-
-      switch (HighlightedMenu) {
-        case 1:
-          ExtendedParameter1 = 1;
-          break;
-        case 2:
-          ExtendedParameter1 = 2;
-          break;
-        case 3:
-          ExtendedParameter1 = 3;
-          break;
-        case 4:
-          ExtendedParameter1 = 4;
-          break;
-        case 5:
-          ExtendedParameter1 = 5;
-          break;
-        case 6:
-          ExtendedParameter1 = 6;
-          break;
-        case 7:
-          ExtendedParameter1 = 7;
-          break;
-        default:
-          break;
-      }
-      break;
-    }
-    PrintStatus();
-  } while (millis() < start + 5000);
   Message = 0;
+  PrintStatus();
 }
 
 void MenuHandle_2ndEncoder() {
-
-  start = millis();
   int HighlightedMenu = ExtendedParameter2;  //The menu that is highlighted is the one already chosen for this encoder
-  bool Redraw = true;
 
-  do {
-    delay(CommandDelay);
-  } while (!RE2.digitalRead(SS_SWITCH));  //Loop while the button is pressed
-  RE2.setEncoderPosition(0);
+  HighlightedMenu = DisplayMenu(8, ExtendedParameter2, 2, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
 
-  TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_EBONY;
-  UpperClearDisplay();
+  if (HighlightedMenu != 0) {
+    ExtendedParameter2 = HighlightedMenu;
+  }
 
-  do {
-    TFT_FOREGROUND = TFT_YELLOW;
-    TFT_BACKGROUND = TFT_EBONY;
-    if (Redraw == true) {
-      Upper.setFreeFont(&FreeSansBold12pt7b);
-      UpperPrintTextCentered(0, 320, 43, "----------------");
-      UpperPrintTextCentered(0, 320, 28, "Select parameter");
-      if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 65, "Squelch");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 91, "Memory Ch.");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 117, "Notch");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 143, "Contour width");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 169, "Contour level");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 6) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(160, 320, 65, "Power level");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 7) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(160, 320, 91, "Frequency");
-      TFT_BACKGROUND = TFT_EBONY;
-      Upper.pushSprite(0, 8);
-
-      Redraw = false;
-    }
-
-    int32_t new_position2 = RotatorDirection * RE2.getEncoderPosition();
-    if (new_position2 != 0) {  // If the position has changed ...
-      if (new_position2 < 0) {
-        HighlightedMenu += abs(new_position2);
-        if (HighlightedMenu > 7) HighlightedMenu = 7;
-      } else {
-        HighlightedMenu -= abs(new_position2);
-        if (HighlightedMenu < 1) HighlightedMenu = 1;
-      }
-      RE2.setEncoderPosition(0);
-      Redraw = true;
-      start = millis();
-    }
-
-
-    if (!RE2.digitalRead(SS_SWITCH)) {  // Reads if the button on the encoder is pressed
-      do {
-        delay(CommandDelay);
-      } while (!RE2.digitalRead(SS_SWITCH));  //Loop while it is pressed
-
-      switch (HighlightedMenu) {
-        case 1:
-          ExtendedParameter2 = 1;
-          break;
-        case 2:
-          ExtendedParameter2 = 2;
-          break;
-        case 3:
-          ExtendedParameter2 = 3;
-          break;
-        case 4:
-          ExtendedParameter2 = 4;
-          break;
-        case 5:
-          ExtendedParameter2 = 5;
-          break;
-        case 6:
-          ExtendedParameter2 = 6;
-          break;
-        case 7:
-          ExtendedParameter2 = 7;
-          break;
-        default:
-          break;
-      }
-      break;
-    }
-    PrintStatus();
-  } while (millis() < start + 5000);
   Message = 0;
+  PrintStatus();
 }
 
 void MenuHandle_3rdEncoder() {
-
-  start = millis();
   int HighlightedMenu = ExtendedParameter3;  //The menu that is highlighted is the one already chosen for this encoder
-  bool Redraw = true;
 
-  do {
-    delay(CommandDelay);
-  } while (!RE3.digitalRead(SS_SWITCH));  //Loop while the button is pressed
-  RE3.setEncoderPosition(0);
+  HighlightedMenu = DisplayMenu(8, ExtendedParameter3, 3, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
 
-  TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_EBONY;
-  UpperClearDisplay();
+  if (HighlightedMenu != 0) {
+    ExtendedParameter3 = HighlightedMenu;
+  }
 
-  do {
-    TFT_FOREGROUND = TFT_YELLOW;
-    TFT_BACKGROUND = TFT_EBONY;
-    if (Redraw == true) {
-      Upper.setFreeFont(&FreeSansBold12pt7b);
-      UpperPrintTextCentered(0, 320, 43, "----------------");
-      UpperPrintTextCentered(0, 320, 28, "Select parameter");
-      if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 65, "Squelch");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 91, "Memory Ch.");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 117, "Notch");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 143, "Contour width");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 169, "Contour level");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 6) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(160, 320, 65, "Power level");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 7) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(160, 320, 91, "Frequency");
-      TFT_BACKGROUND = TFT_EBONY;
-      Upper.pushSprite(0, 8);
-
-      Redraw = false;
-    }
-
-    int32_t new_position3 = RotatorDirection * RE3.getEncoderPosition();
-    if (new_position3 != 0) {  // If the position has changed ...
-      if (new_position3 < 0) {
-        HighlightedMenu += abs(new_position3);
-        if (HighlightedMenu > 7) HighlightedMenu = 7;
-      } else {
-        HighlightedMenu -= abs(new_position3);
-        if (HighlightedMenu < 1) HighlightedMenu = 1;
-      }
-      RE3.setEncoderPosition(0);
-      Redraw = true;
-      start = millis();
-    }
-
-
-    if (!RE3.digitalRead(SS_SWITCH)) {  // Reads if the button on the encoder is pressed
-      do {
-        delay(CommandDelay);
-      } while (!RE3.digitalRead(SS_SWITCH));  //Loop while it is pressed
-
-      switch (HighlightedMenu) {
-        case 1:
-          ExtendedParameter3 = 1;
-          break;
-        case 2:
-          ExtendedParameter3 = 2;
-          break;
-        case 3:
-          ExtendedParameter3 = 3;
-          break;
-        case 4:
-          ExtendedParameter3 = 4;
-          break;
-        case 5:
-          ExtendedParameter3 = 5;
-          break;
-        case 6:
-          ExtendedParameter3 = 6;
-          break;
-        case 7:
-          ExtendedParameter3 = 7;
-          break;
-        default:
-          break;
-      }
-      break;
-    }
-    PrintStatus();
-  } while (millis() < start + 5000);
   Message = 0;
+  PrintStatus();
 }
 
 void MenuHandle_4thEncoder() {
-
-  start = millis();
   int HighlightedMenu = ExtendedParameter4;  //The menu that is highlighted is the one already chosen for this encoder
-  bool Redraw = true;
 
-  do {
-    delay(CommandDelay);
-  } while (!RE4.digitalRead(SS_SWITCH));  //Loop while the button is pressed
-  RE4.setEncoderPosition(0);
+  HighlightedMenu = DisplayMenu(8, ExtendedParameter4, 4, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
 
-  TFT_FOREGROUND = TFT_YELLOW;
-  TFT_BACKGROUND = TFT_EBONY;
-  UpperClearDisplay();
+  if (HighlightedMenu != 0) {
+    ExtendedParameter4 = HighlightedMenu;
+  }
 
-  do {
-    TFT_FOREGROUND = TFT_YELLOW;
-    TFT_BACKGROUND = TFT_EBONY;
-    if (Redraw == true) {
-      Upper.setFreeFont(&FreeSansBold12pt7b);
-      UpperPrintTextCentered(0, 320, 43, "----------------");
-      UpperPrintTextCentered(0, 320, 28, "Select parameter");
-      if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 65, "Squelch");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 91, "Memory Ch.");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 117, "Notch");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 143, "Contour width");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(0, 160, 169, "Contour level");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 6) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(160, 320, 65, "Power level");
-      TFT_BACKGROUND = TFT_EBONY;
-      if (HighlightedMenu == 7) TFT_BACKGROUND = TFT_RED;
-      UpperPrintTextCentered(160, 320, 91, "Frequency");
-      TFT_BACKGROUND = TFT_EBONY;
-      Upper.pushSprite(0, 8);
-
-      Redraw = false;
-    }
-
-    int32_t new_position4 = RotatorDirection * RE4.getEncoderPosition();
-    if (new_position4 != 0) {  // If the position has changed ...
-      if (new_position4 < 0) {
-        HighlightedMenu += abs(new_position4);
-        if (HighlightedMenu > 7) HighlightedMenu = 7;
-      } else {
-        HighlightedMenu -= abs(new_position4);
-        if (HighlightedMenu < 1) HighlightedMenu = 1;
-      }
-      RE4.setEncoderPosition(0);
-      Redraw = true;
-      start = millis();
-    }
-
-
-    if (!RE4.digitalRead(SS_SWITCH)) {  // Reads if the button on the encoder is pressed
-      do {
-        delay(CommandDelay);
-      } while (!RE4.digitalRead(SS_SWITCH));  //Loop while it is pressed
-
-      switch (HighlightedMenu) {
-        case 1:
-          ExtendedParameter4 = 1;
-          break;
-        case 2:
-          ExtendedParameter4 = 2;
-          break;
-        case 3:
-          ExtendedParameter4 = 3;
-          break;
-        case 4:
-          ExtendedParameter4 = 4;
-          break;
-        case 5:
-          ExtendedParameter4 = 5;
-          break;
-        case 6:
-          ExtendedParameter4 = 6;
-          break;
-        case 7:
-          ExtendedParameter4 = 7;
-          break;
-        default:
-          break;
-      }
-      break;
-    }
-    PrintStatus();
-  } while (millis() < start + 5000);
   Message = 0;
+  PrintStatus();
 }
 
-void Read1stEncoder() {
+void ReadEncoder() {  //Unified ReadEncoder function
   int SQL;
   int Memory;
   int NotchWidth;
   int ContourWidth;
   int ContourLevel;
   int PowerLevel;
+  int32_t new_position;
+  int32_t encoder_position;
   long CurrentFrequencyRX;
+  int RotatorEncoder;  //Which is the rotaror that we work with.
+  int ExtendedParameter;
   int i = 0;
   start = millis();
 
@@ -1858,26 +1462,92 @@ void Read1stEncoder() {
   PowerLevel = ReadPower();
   CurrentFrequencyRX = ReadFrequency(VFORead());
 
+  //Find which rotator is moving
+  if (encoder_position1 != RotatorDirection * RE1.getEncoderPosition()) {
+    RotatorEncoder = 1;
+  } else if (encoder_position2 != RotatorDirection * RE2.getEncoderPosition()) {
+    RotatorEncoder = 2;
+  } else if (encoder_position3 != RotatorDirection * RE3.getEncoderPosition()) {
+    RotatorEncoder = 3;
+  } else if (encoder_position4 != RotatorDirection * RE4.getEncoderPosition()) {
+    RotatorEncoder = 4;
+  }
+
+  //Find out which parameter we are working with
+  switch (RotatorEncoder) {
+    case 1:
+      ExtendedParameter = ExtendedParameter1;
+      break;
+    case 2:
+      ExtendedParameter = ExtendedParameter2;
+      break;
+    case 3:
+      ExtendedParameter = ExtendedParameter3;
+      break;
+    case 4:
+      ExtendedParameter = ExtendedParameter4;
+      break;
+    default:
+      break;
+  }
 
   do {
     // If the previous and the current state of the outputA are different, that means a Pulse has occured
-    int32_t new_position1 = RotatorDirection * RE1.getEncoderPosition();
-    if (encoder_position1 != new_position1) {
+    switch (RotatorEncoder) {
+      case 1:
+        new_position = RotatorDirection * RE1.getEncoderPosition();
+        break;
+      case 2:
+        new_position = RotatorDirection * RE2.getEncoderPosition();
+        break;
+      case 3:
+        new_position = RotatorDirection * RE3.getEncoderPosition();
+        break;
+      case 4:
+        new_position = RotatorDirection * RE4.getEncoderPosition();
+        break;
+      default:
+        break;
+    }
+
+    switch (RotatorEncoder) {
+      case 1:
+        encoder_position = encoder_position1;
+        break;
+      case 2:
+        encoder_position = encoder_position2;
+        break;
+      case 3:
+        encoder_position = encoder_position3;
+        break;
+      case 4:
+        encoder_position = encoder_position4;
+        break;
+      default:
+        break;
+    }
+
+
+
+    if (encoder_position != new_position) {
       if (Message != 0) {
         TFT_FOREGROUND = TFT_YELLOW;
         TFT_BACKGROUND = TFT_EBONY;
         UpperClearDisplay();
         Message = 0;
       }
-      if (new_position1 < encoder_position1) {  // If the rotator moved clockwise
-        switch (ExtendedParameter1) {
+
+
+      if (new_position < encoder_position) {  // If the rotator moved clockwise
+
+        switch (ExtendedParameter) {
           case 1:
-            SQL += 10 * (encoder_position1 - new_position1);
+            SQL += 10 * (encoder_position - new_position);
             if (SQL > 100) { SQL = 100; }
             SetSQL(SQL);
             break;
           case 2:
-            Memory += (encoder_position1 - new_position1);
+            Memory += (encoder_position - new_position);
             if (Memory > 100) { Memory = 100; }
             SetMemory(Memory);
             break;
@@ -1888,17 +1558,17 @@ void Read1stEncoder() {
             }
             break;
           case 4:
-            ContourWidth += (encoder_position1 - new_position1);
+            ContourWidth += (encoder_position - new_position);
             if (ContourWidth > 11) { ContourWidth = 11; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel += (encoder_position1 - new_position1);
+            ContourLevel += (encoder_position - new_position);
             if (ContourLevel > 20) { ContourLevel = 20; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel += (encoder_position1 - new_position1);
+            PowerLevel += (encoder_position - new_position);
             if (RIG_Model == 'FTDX101MP' && PowerLevel > 200) {
               PowerLevel = 200;
             } else if (RIG_Model == 'FTDX101D' && PowerLevel > 100) {
@@ -1908,20 +1578,22 @@ void Read1stEncoder() {
             break;
           case 7:
             CurrentFrequencyRX = CurrentFrequencyRX / Steps * Steps;
-            CurrentFrequencyRX = CurrentFrequencyRX + Steps * (encoder_position1 - new_position1);
+            CurrentFrequencyRX = CurrentFrequencyRX + Steps * (encoder_position - new_position);
             SetFrequency(VFORead(), CurrentFrequencyRX);
             break;
-          default: break;
+          default:
+            break;
         }
       } else {  //The rotator turned counterclockwise
-        switch (ExtendedParameter1) {
+
+        switch (ExtendedParameter) {
           case 1:
-            SQL -= 10 * (new_position1 - encoder_position1);
+            SQL -= 10 * (new_position - encoder_position);
             if (SQL < 0) { SQL = 0; }
             SetSQL(SQL);
             break;
           case 2:
-            Memory -= (new_position1 - encoder_position1);
+            Memory -= (new_position - encoder_position);
             if (Memory < 1) { Memory = 1; }
             SetMemory(Memory);
             break;
@@ -1932,34 +1604,50 @@ void Read1stEncoder() {
             }
             break;
           case 4:
-            ContourWidth -= (new_position1 - encoder_position1);
+            ContourWidth -= (new_position - encoder_position);
             if (ContourWidth < 1) { ContourWidth = 1; }
             SetContourWidth(ContourWidth);
             break;
           case 5:
-            ContourLevel -= (new_position1 - encoder_position1);
+            ContourLevel -= (new_position - encoder_position);
             if (ContourLevel < -40) { ContourLevel = -40; }
             SetContourLevel(ContourLevel);
             break;
           case 6:
-            PowerLevel -= (new_position1 - encoder_position1);
+            PowerLevel -= (new_position - encoder_position);
             if (PowerLevel < 5) { PowerLevel = 5; }
             SetPower(PowerLevel);
             break;
           case 7:
             CurrentFrequencyRX = (CurrentFrequencyRX + (Steps - 1)) / Steps * Steps;
-            CurrentFrequencyRX = CurrentFrequencyRX - Steps * (new_position1 - encoder_position1);
+            CurrentFrequencyRX = CurrentFrequencyRX - Steps * (new_position - encoder_position);
             SetFrequency(VFORead(), CurrentFrequencyRX);
             break;
           default:
             break;
         }
       }
-      encoder_position1 = new_position1;
+
+      switch (RotatorEncoder) {
+        case 1:
+          encoder_position1 = new_position;
+          break;
+        case 2:
+          encoder_position2 = new_position;
+          break;
+        case 3:
+          encoder_position3 = new_position;
+          break;
+        case 4:
+          encoder_position4 = new_position;
+          break;
+        default:
+          break;
+      }
 
       TFT_FOREGROUND = TFT_YELLOW;
       TFT_BACKGROUND = TFT_EBONY;
-      switch (ExtendedParameter1) {
+      switch (ExtendedParameter) {
         case 1:
           Upper.setFreeFont(&FreeSansBold24pt7b);
           UpperPrintTextCentered(0, 320, 100, "SQL: " + String(ReadSQL()));
@@ -2014,578 +1702,71 @@ void Read1stEncoder() {
       start = millis();
     }
 
-    if (!RE1.digitalRead(SS_SWITCH)) {  // Reads if the rotator button is pressed...
-      do {
-      } while (!RE1.digitalRead(SS_SWITCH));  //...end wait until released
-      encoder_position1 = 0;
-      RE1.setEncoderPosition(0);
-      return;
+    switch (RotatorEncoder) {
+      case 1:
+        if (!RE1.digitalRead(SS_SWITCH)) {  // Reads if the rotator button is pressed...
+          do {
+          } while (!RE1.digitalRead(SS_SWITCH));  //...end wait until released
+          encoder_position1 = 0;
+          RE1.setEncoderPosition(0);
+          return;
+        }
+        break;
+      case 2:
+        if (!RE2.digitalRead(SS_SWITCH)) {  // Reads if the rotator button is pressed...
+          do {
+          } while (!RE2.digitalRead(SS_SWITCH));  //...end wait until released
+          encoder_position2 = 0;
+          RE2.setEncoderPosition(0);
+          return;
+        }
+        break;
+      case 3:
+        if (!RE3.digitalRead(SS_SWITCH)) {  // Reads if the rotator button is pressed...
+          do {
+          } while (!RE3.digitalRead(SS_SWITCH));  //...end wait until released
+          encoder_position3 = 0;
+          RE3.setEncoderPosition(0);
+          return;
+        }
+        break;
+      case 4:
+        if (!RE4.digitalRead(SS_SWITCH)) {  // Reads if the rotator button is pressed...
+          do {
+          } while (!RE4.digitalRead(SS_SWITCH));  //...end wait until released
+          encoder_position4 = 0;
+          RE4.setEncoderPosition(0);
+          return;
+        }
+        break;
+      default:
+        break;
     }
+
     PrintStatus();
   } while (millis() < start + 1000);
-  encoder_position1 = 0;
-  RE1.setEncoderPosition(0);
-}
-
-void Read2ndEncoder() {
-  int SQL;
-  int Memory;
-  int NotchWidth;
-  int ContourWidth;
-  int ContourLevel;
-  int PowerLevel;
-  long CurrentFrequencyRX;
-  int i = 0;
-  start = millis();
-
-  SQL = ReadSQL();
-  Memory = ReadMemory();
-  NotchWidth = ReadNotchWidth();
-  ContourWidth = ReadContourWidth();
-  ContourLevel = ReadContourLevel();
-  PowerLevel = ReadPower();
-  CurrentFrequencyRX = ReadFrequency(VFORead());
 
 
-  do {
-    // If the previous and the current state of the outputA are different, that means a Pulse has occured
-    int32_t new_position2 = RotatorDirection * RE2.getEncoderPosition();
-    if (encoder_position2 != new_position2) {
-      if (Message != 0) {
-        TFT_FOREGROUND = TFT_YELLOW;
-        TFT_BACKGROUND = TFT_EBONY;
-        UpperClearDisplay();
-        Message = 0;
-      }
-      if (new_position2 < encoder_position2) {  // If the rotator moved clockwise
-        switch (ExtendedParameter2) {
-          case 1:
-            SQL += 10 * (encoder_position2 - new_position2);
-            if (SQL > 100) { SQL = 100; }
-            SetSQL(SQL);
-            break;
-          case 2:
-            Memory += (encoder_position2 - new_position2);
-            if (Memory > 100) { Memory = 100; }
-            SetMemory(Memory);
-            break;
-          case 3:
-            if (NotchWidth == 0) {
-              NotchWidth = 1;
-              SetNotchWidth(NotchWidth);
-            }
-            break;
-          case 4:
-            ContourWidth += (encoder_position2 - new_position2);
-            if (ContourWidth > 11) { ContourWidth = 11; }
-            SetContourWidth(ContourWidth);
-            break;
-          case 5:
-            ContourLevel += (encoder_position2 - new_position2);
-            if (ContourLevel > 20) { ContourLevel = 20; }
-            SetContourLevel(ContourLevel);
-            break;
-          case 6:
-            PowerLevel += (encoder_position2 - new_position2);
-            if (RIG_Model == 'FTDX101MP' && PowerLevel > 200) {
-              PowerLevel = 200;
-            } else if (RIG_Model == 'FTDX101D' && PowerLevel > 100) {
-              PowerLevel = 100;
-            }
-            SetPower(PowerLevel);
-            break;
-          case 7:
-            CurrentFrequencyRX = CurrentFrequencyRX / Steps * Steps;
-            CurrentFrequencyRX = CurrentFrequencyRX + Steps * (encoder_position2 - new_position2);
-            SetFrequency(VFORead(), CurrentFrequencyRX);
-            break;
-          default: break;
-        }
-      } else {  //The rotator turned counterclockwise
-        switch (ExtendedParameter2) {
-          case 1:
-            SQL -= 10 * (new_position2 - encoder_position2);
-            if (SQL < 0) { SQL = 0; }
-            SetSQL(SQL);
-            break;
-          case 2:
-            Memory -= (new_position2 - encoder_position2);
-            if (Memory < 1) { Memory = 1; }
-            SetMemory(Memory);
-            break;
-          case 3:
-            if (NotchWidth == 1) {
-              NotchWidth = 0;
-              SetNotchWidth(NotchWidth);
-            }
-            break;
-          case 4:
-            ContourWidth -= (new_position2 - encoder_position2);
-            if (ContourWidth < 1) { ContourWidth = 1; }
-            SetContourWidth(ContourWidth);
-            break;
-          case 5:
-            ContourLevel -= (new_position2 - encoder_position2);
-            if (ContourLevel < -40) { ContourLevel = -40; }
-            SetContourLevel(ContourLevel);
-            break;
-          case 6:
-            PowerLevel -= (new_position2 - encoder_position2);
-            if (PowerLevel < 5) { PowerLevel = 5; }
-            SetPower(PowerLevel);
-            break;
-          case 7:
-            CurrentFrequencyRX = (CurrentFrequencyRX + (Steps - 1)) / Steps * Steps;
-            CurrentFrequencyRX = CurrentFrequencyRX - Steps * (new_position2 - encoder_position2);
-            SetFrequency(VFORead(), CurrentFrequencyRX);
-            break;
-          default:
-            break;
-        }
-      }
-      encoder_position2 = new_position2;
-
-      switch (ExtendedParameter2) {
-        case 1:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "SQL: " + String(ReadSQL()));
-          break;
-        case 2:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          if (Memory != ReadMemory()) {
-            UpperPrintTextCentered(0, 320, 100, "MEM: " + String(Memory) + " E");
-          } else {
-            UpperPrintTextCentered(0, 320, 100, "MEM: " + String(Memory));
-          }
-          break;
-        case 3:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          if (NotchWidth == 0) {
-            UpperPrintTextCentered(0, 320, 100, "Narrow notch");
-          } else if (NotchWidth == 1) {
-            UpperPrintTextCentered(0, 320, 100, "Wide notch");
-          }
-          break;
-        case 4:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "Cont W: " + String(ContourWidth));
-          break;
-        case 5:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "Cont L: " + String(ContourLevel));
-          break;
-        case 6:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "PWR: " + String(PowerLevel) + "W");
-          Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
-          Lower.setFreeFont(&FreeSansBold12pt7b);
-          TFT_BACKGROUND = TFT_BLACK;
-          LowerPrintText(1, 28, "PWR: " + String(PowerLevel) + "W");
-          Lower.pushSprite(0, 181);
-          TFT_BACKGROUND = TFT_EBONY;
-          PreviousPower = PowerLevel;  //In order to avoid to force status update because of the power change
-          break;
-        case 7:
-          //The following block of code is done to avoid some flickering while changing the frequentcy on the tft screen
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          TFT_FOREGROUND = TFT_YELLOW;
-          if (CurrentFrequencyRX > 9999999) {
-            UpperPrintTextCentered(0, 320, 100, String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8));
-          } else {
-            UpperPrintTextCentered(0, 320, 100, String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7));
-          }
-          break;
-        default:
-          break;
-      }
-      Upper.pushSprite(0, 8);
-      start = millis();
-    }
-
-    if (!RE2.digitalRead(SS_SWITCH)) {  // Reads if the rotator button is pressed...
-      do {
-      } while (!RE2.digitalRead(SS_SWITCH));  //...end wait until released
+  switch (RotatorEncoder) {
+    case 1:
+      encoder_position1 = 0;
+      RE1.setEncoderPosition(0);
+      break;
+    case 2:
       encoder_position2 = 0;
       RE2.setEncoderPosition(0);
-      return;
-    }
-  } while (millis() < start + 1000);
-  encoder_position2 = 0;
-  RE2.setEncoderPosition(0);
-}
-
-void Read3rdEncoder() {
-  int SQL;
-  int Memory;
-  int NotchWidth;
-  int ContourWidth;
-  int ContourLevel;
-  int PowerLevel;
-  long CurrentFrequencyRX;
-  int i = 0;
-  start = millis();
-
-  SQL = ReadSQL();
-  Memory = ReadMemory();
-  NotchWidth = ReadNotchWidth();
-  ContourWidth = ReadContourWidth();
-  ContourLevel = ReadContourLevel();
-  PowerLevel = ReadPower();
-  CurrentFrequencyRX = ReadFrequency(VFORead());
-
-
-  do {
-    // If the previous and the current state of the outputA are different, that means a Pulse has occured
-    int32_t new_position3 = RotatorDirection * RE3.getEncoderPosition();
-    if (encoder_position3 != new_position3) {
-      if (Message != 0) {
-        TFT_FOREGROUND = TFT_YELLOW;
-        TFT_BACKGROUND = TFT_EBONY;
-        UpperClearDisplay();
-        Message = 0;
-      }
-      if (new_position3 < encoder_position3) {  // If the rotator moved clockwise
-        switch (ExtendedParameter3) {
-          case 1:
-            SQL += 10 * (encoder_position3 - new_position3);
-            if (SQL > 100) { SQL = 100; }
-            SetSQL(SQL);
-            break;
-          case 2:
-            Memory += (encoder_position3 - new_position3);
-            if (Memory > 100) { Memory = 100; }
-            SetMemory(Memory);
-            break;
-          case 3:
-            if (NotchWidth == 0) {
-              NotchWidth = 1;
-              SetNotchWidth(NotchWidth);
-            }
-            break;
-          case 4:
-            ContourWidth += (encoder_position3 - new_position3);
-            if (ContourWidth > 11) { ContourWidth = 11; }
-            SetContourWidth(ContourWidth);
-            break;
-          case 5:
-            ContourLevel += (encoder_position3 - new_position3);
-            if (ContourLevel > 20) { ContourLevel = 20; }
-            SetContourLevel(ContourLevel);
-            break;
-          case 6:
-            PowerLevel += (encoder_position3 - new_position3);
-            if (RIG_Model == 'FTDX101MP' && PowerLevel > 200) {
-              PowerLevel = 200;
-            } else if (RIG_Model == 'FTDX101D' && PowerLevel > 100) {
-              PowerLevel = 100;
-            }
-            SetPower(PowerLevel);
-            break;
-          case 7:
-            CurrentFrequencyRX = CurrentFrequencyRX / Steps * Steps;
-            CurrentFrequencyRX = CurrentFrequencyRX + Steps * (encoder_position3 - new_position3);
-            SetFrequency(VFORead(), CurrentFrequencyRX);
-            break;
-          default: break;
-        }
-      } else {  //The rotator turned counterclockwise
-        switch (ExtendedParameter3) {
-          case 1:
-            SQL -= 10 * (new_position3 - encoder_position3);
-            if (SQL < 0) { SQL = 0; }
-            SetSQL(SQL);
-            break;
-          case 2:
-            Memory -= (new_position3 - encoder_position3);
-            if (Memory < 1) { Memory = 1; }
-            SetMemory(Memory);
-            break;
-          case 3:
-            if (NotchWidth == 1) {
-              NotchWidth = 0;
-              SetNotchWidth(NotchWidth);
-            }
-            break;
-          case 4:
-            ContourWidth -= (new_position3 - encoder_position3);
-            if (ContourWidth < 1) { ContourWidth = 1; }
-            SetContourWidth(ContourWidth);
-            break;
-          case 5:
-            ContourLevel -= (new_position3 - encoder_position3);
-            if (ContourLevel < -40) { ContourLevel = -40; }
-            SetContourLevel(ContourLevel);
-            break;
-          case 6:
-            PowerLevel -= (new_position3 - encoder_position3);
-            if (PowerLevel < 5) { PowerLevel = 5; }
-            SetPower(PowerLevel);
-            break;
-          case 7:
-            CurrentFrequencyRX = (CurrentFrequencyRX + (Steps - 1)) / Steps * Steps;
-            CurrentFrequencyRX = CurrentFrequencyRX - Steps * (new_position3 - encoder_position3);
-            SetFrequency(VFORead(), CurrentFrequencyRX);
-            break;
-          default:
-            break;
-        }
-      }
-      encoder_position3 = new_position3;
-
-      switch (ExtendedParameter3) {
-        case 1:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "SQL: " + String(ReadSQL()));
-          break;
-        case 2:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          if (Memory != ReadMemory()) {
-            UpperPrintTextCentered(0, 320, 100, "MEM: " + String(Memory) + " E");
-          } else {
-            UpperPrintTextCentered(0, 320, 100, "MEM: " + String(Memory));
-          }
-          break;
-        case 3:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          if (NotchWidth == 0) {
-            UpperPrintTextCentered(0, 320, 100, "Narrow notch");
-          } else if (NotchWidth == 1) {
-            UpperPrintTextCentered(0, 320, 100, "Wide notch");
-          }
-          break;
-        case 4:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "Cont W: " + String(ContourWidth));
-          break;
-        case 5:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "Cont L: " + String(ContourLevel));
-          break;
-        case 6:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "PWR: " + String(PowerLevel) + "W");
-          Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
-          Lower.setFreeFont(&FreeSansBold12pt7b);
-          TFT_BACKGROUND = TFT_BLACK;
-          LowerPrintText(1, 28, "PWR: " + String(PowerLevel) + "W");
-          Lower.pushSprite(0, 181);
-          TFT_BACKGROUND = TFT_EBONY;
-          PreviousPower = PowerLevel;  //In order to avoid to force status update because of the power change
-          break;
-        case 7:
-          //The following block of code is done to avoid some flickering while changing the frequentcy on the tft screen
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          TFT_FOREGROUND = TFT_YELLOW;
-          if (CurrentFrequencyRX > 9999999) {
-            UpperPrintTextCentered(0, 320, 100, String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8));
-          } else {
-            UpperPrintTextCentered(0, 320, 100, String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7));
-          }
-          break;
-        default:
-          break;
-      }
-      Upper.pushSprite(0, 8);
-      start = millis();
-    }
-
-    if (!RE3.digitalRead(SS_SWITCH)) {  // Reads if the rotator button is pressed...
-      do {
-      } while (!RE3.digitalRead(SS_SWITCH));  //...end wait until released
+      break;
+    case 3:
       encoder_position3 = 0;
       RE3.setEncoderPosition(0);
-      return;
-    }
-  } while (millis() < start + 1000);
-  encoder_position3 = 0;
-  RE3.setEncoderPosition(0);
-}
-
-void Read4thEncoder() {
-  int SQL;
-  int Memory;
-  int NotchWidth;
-  int ContourWidth;
-  int ContourLevel;
-  int PowerLevel;
-  long CurrentFrequencyRX;
-  int i = 0;
-  start = millis();
-
-  SQL = ReadSQL();
-  Memory = ReadMemory();
-  NotchWidth = ReadNotchWidth();
-  ContourWidth = ReadContourWidth();
-  ContourLevel = ReadContourLevel();
-  PowerLevel = ReadPower();
-  CurrentFrequencyRX = ReadFrequency(VFORead());
-
-
-  do {
-    // If the previous and the current state of the outputA are different, that means a Pulse has occured
-    int32_t new_position4 = RotatorDirection * RE4.getEncoderPosition();
-    if (encoder_position4 != new_position4) {
-      if (Message != 0) {
-        TFT_FOREGROUND = TFT_YELLOW;
-        TFT_BACKGROUND = TFT_EBONY;
-        UpperClearDisplay();
-        Message = 0;
-      }
-      if (new_position4 < encoder_position4) {  // If the rotator moved clockwise
-        switch (ExtendedParameter4) {
-          case 1:
-            SQL += 10 * (encoder_position4 - new_position4);
-            if (SQL > 100) { SQL = 100; }
-            SetSQL(SQL);
-            break;
-          case 2:
-            Memory += (encoder_position4 - new_position4);
-            if (Memory > 100) { Memory = 100; }
-            SetMemory(Memory);
-            break;
-          case 3:
-            if (NotchWidth == 0) {
-              NotchWidth = 1;
-              SetNotchWidth(NotchWidth);
-            }
-            break;
-          case 4:
-            ContourWidth += (encoder_position4 - new_position4);
-            if (ContourWidth > 11) { ContourWidth = 11; }
-            SetContourWidth(ContourWidth);
-            break;
-          case 5:
-            ContourLevel += (encoder_position4 - new_position4);
-            if (ContourLevel > 20) { ContourLevel = 20; }
-            SetContourLevel(ContourLevel);
-            break;
-          case 6:
-            PowerLevel += (encoder_position4 - new_position4);
-            if (RIG_Model == 'FTDX101MP' && PowerLevel > 200) {
-              PowerLevel = 200;
-            } else if (RIG_Model == 'FTDX101D' && PowerLevel > 100) {
-              PowerLevel = 100;
-            }
-            SetPower(PowerLevel);
-            break;
-          case 7:
-            CurrentFrequencyRX = CurrentFrequencyRX / Steps * Steps;
-            CurrentFrequencyRX = CurrentFrequencyRX + Steps * (encoder_position4 - new_position4);
-            SetFrequency(VFORead(), CurrentFrequencyRX);
-            break;
-          default: break;
-        }
-      } else {  //The rotator turned counterclockwise
-        switch (ExtendedParameter4) {
-          case 1:
-            SQL -= 10 * (new_position4 - encoder_position4);
-            if (SQL < 0) { SQL = 0; }
-            SetSQL(SQL);
-            break;
-          case 2:
-            Memory -= (new_position4 - encoder_position4);
-            if (Memory < 1) { Memory = 1; }
-            SetMemory(Memory);
-            break;
-          case 3:
-            if (NotchWidth == 1) {
-              NotchWidth = 0;
-              SetNotchWidth(NotchWidth);
-            }
-            break;
-          case 4:
-            ContourWidth -= (new_position4 - encoder_position4);
-            if (ContourWidth < 1) { ContourWidth = 1; }
-            SetContourWidth(ContourWidth);
-            break;
-          case 5:
-            ContourLevel -= (new_position4 - encoder_position4);
-            if (ContourLevel < -40) { ContourLevel = -40; }
-            SetContourLevel(ContourLevel);
-            break;
-          case 6:
-            PowerLevel -= (new_position4 - encoder_position4);
-            if (PowerLevel < 5) { PowerLevel = 5; }
-            SetPower(PowerLevel);
-            break;
-          case 7:
-            CurrentFrequencyRX = (CurrentFrequencyRX + (Steps - 1)) / Steps * Steps;
-            CurrentFrequencyRX = CurrentFrequencyRX - Steps * (new_position4 - encoder_position4);
-            SetFrequency(VFORead(), CurrentFrequencyRX);
-            break;
-          default:
-            break;
-        }
-      }
-      encoder_position4 = new_position4;
-
-      switch (ExtendedParameter4) {
-        case 1:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "SQL: " + String(ReadSQL()));
-          break;
-        case 2:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          if (Memory != ReadMemory()) {
-            UpperPrintTextCentered(0, 320, 100, "MEM: " + String(Memory) + " E");
-          } else {
-            UpperPrintTextCentered(0, 320, 100, "MEM: " + String(Memory));
-          }
-          break;
-        case 3:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          if (NotchWidth == 0) {
-            UpperPrintTextCentered(0, 320, 100, "Narrow notch");
-          } else if (NotchWidth == 1) {
-            UpperPrintTextCentered(0, 320, 100, "Wide notch");
-          }
-          break;
-        case 4:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "Cont W: " + String(ContourWidth));
-          break;
-        case 5:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "Cont L: " + String(ContourLevel));
-          break;
-        case 6:
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "PWR: " + String(PowerLevel) + "W");
-          Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
-          Lower.setFreeFont(&FreeSansBold12pt7b);
-          TFT_BACKGROUND = TFT_BLACK;
-          LowerPrintText(1, 28, "PWR: " + String(PowerLevel) + "W");
-          Lower.pushSprite(0, 181);
-          TFT_BACKGROUND = TFT_EBONY;
-          PreviousPower = PowerLevel;  //In order to avoid to force status update because of the power change
-          break;
-        case 7:
-          //The following block of code is done to avoid some flickering while changing the frequentcy on the tft screen
-          Upper.setFreeFont(&FreeSansBold24pt7b);
-          TFT_FOREGROUND = TFT_YELLOW;
-          if (CurrentFrequencyRX > 9999999) {
-            UpperPrintTextCentered(0, 320, 100, String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8));
-          } else {
-            UpperPrintTextCentered(0, 320, 100, String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7));
-          }
-          break;
-        default:
-          break;
-      }
-      Upper.pushSprite(0, 8);
-      start = millis();
-    }
-
-    if (!RE4.digitalRead(SS_SWITCH)) {  // Reads if the rotator button is pressed...
-      do {
-      } while (!RE4.digitalRead(SS_SWITCH));  //...end wait until released
+      break;
+    case 4:
       encoder_position4 = 0;
       RE4.setEncoderPosition(0);
-      return;
-    }
-  } while (millis() < start + 1000);
-  encoder_position4 = 0;
-  RE4.setEncoderPosition(0);
+      break;
+    default:
+      break;
+  }
 }
 
 int ReadContourWidth() {
@@ -2745,4 +1926,199 @@ void SecondCoreTaskCode(void* pvParameters) {
     }
     delay(CommandDelay);
   } while (true);
+}
+
+// Function to handle the display of a menu
+int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = the number of items to display including the title. HighlightedMenu = The menu that should be highlighted. Control = the rottay controler that controls the menu
+  va_list args;
+  va_start(args, count);
+  String Lines[10];  //Manimum number of menu lines
+  int32_t new_position;
+  int32_t encoder_position = encoder_position1;
+  bool RotaryEncoderButtonPressed = false;
+  int MenuTopPosition;  // Shows which menu option is on top (we have only 5 options to dsisplay).
+
+  for (int i = 0; i < count; i++) {
+    Lines[i] = va_arg(args, const char*);
+    Serial.print(i);
+    Serial.print(" ");
+    Serial.println(Lines[i]);
+  }
+
+  bool Redraw = true;
+  uint16_t SwapColors;
+
+  if (HighlightedMenu <= 5) {  //If the initial highlighted option is in the first 5...
+    MenuTopPosition = 1;
+  } else {  //if not, adjust which is the first option to display
+    MenuTopPosition = HighlightedMenu - 4;
+    HighlightedMenu = 5;
+  }
+
+  TFT_FOREGROUND = TFT_YELLOW;
+  TFT_BACKGROUND = TFT_EBONY;
+  UpperClearDisplay();
+
+  start = millis();
+
+  do {
+    if (Redraw == true) {
+      TFT_FOREGROUND = TFT_YELLOW;
+      TFT_BACKGROUND = TFT_EBONY;
+      Upper.setFreeFont(&FreeSansBold12pt7b);
+      UpperPrintTextCentered(0, 320, 43, "--------------------");
+      UpperPrintTextCentered(0, 320, 28, Lines[0]);
+      if (HighlightedMenu == 1) TFT_BACKGROUND = TFT_RED;
+      UpperPrintTextCentered(0, 320, 65, Lines[MenuTopPosition]);
+      TFT_BACKGROUND = TFT_EBONY;
+      if (HighlightedMenu == 2) TFT_BACKGROUND = TFT_RED;
+      UpperPrintTextCentered(0, 320, 91, Lines[MenuTopPosition + 1]);
+      TFT_BACKGROUND = TFT_EBONY;
+      if (HighlightedMenu == 3) TFT_BACKGROUND = TFT_RED;
+      UpperPrintTextCentered(0, 320, 117, Lines[MenuTopPosition + 2]);
+      TFT_BACKGROUND = TFT_EBONY;
+      if (HighlightedMenu == 4) TFT_BACKGROUND = TFT_RED;
+      UpperPrintTextCentered(0, 320, 143, Lines[MenuTopPosition + 3]);
+      TFT_BACKGROUND = TFT_EBONY;
+      if (HighlightedMenu == 5) TFT_BACKGROUND = TFT_RED;
+      UpperPrintTextCentered(0, 320, 169, Lines[MenuTopPosition + 4]);
+      TFT_BACKGROUND = TFT_EBONY;
+      //Upper.drawRect(100, 117, 320 - 2 * 100, 1, TFT_YELLOW);
+      Upper.pushSprite(0, 8);
+      Redraw = false;
+    }
+
+    while (digitalRead(Button) == 0) {  //Loop while the button is pressed. This it to assure that we wait the button to be released after the first menu draw and beforwe we proceed further. The button is not used after this.
+      delay(CommandDelay);
+      start = millis();
+    }
+
+    switch (Control) {  // Reads the "current" position of the rotary encoder who controls the menu
+      case 1:
+        new_position = RotatorDirection * RE1.getEncoderPosition();
+        break;
+      case 2:
+        new_position = RotatorDirection * RE2.getEncoderPosition();
+        break;
+      case 3:
+        new_position = RotatorDirection * RE3.getEncoderPosition();
+        break;
+      case 4:
+        new_position = RotatorDirection * RE4.getEncoderPosition();
+        break;
+      default:
+        break;
+    }
+    if (new_position != encoder_position) {  //If the encoder has been moved
+      if (new_position < encoder_position) {
+        HighlightedMenu++;
+        if (HighlightedMenu >= count) {  //In case we have fewer that 5 menu items
+          HighlightedMenu = count - 1;
+        }
+        if (HighlightedMenu > 5) {
+          HighlightedMenu = 5;
+          MenuTopPosition++;
+          if (MenuTopPosition > count - 5) MenuTopPosition = count - 5;  //-5 because we can display 5 lines of menu on the screen (expluding the menu title)
+        }
+      } else {
+        HighlightedMenu--;
+        if (HighlightedMenu < 1) {
+          HighlightedMenu = 1;
+          MenuTopPosition--;
+          if (MenuTopPosition < 1) MenuTopPosition = 1;
+        }
+      }
+      Redraw = true;
+      start = millis();
+    }
+    encoder_position = new_position;  // Updates the previous encoder position with the current one
+
+    switch (Control) {  // Set the correct encoder_positionX
+      case 1:
+        encoder_position1 = encoder_position;
+        break;
+      case 2:
+        encoder_position2 = encoder_position;
+        break;
+      case 3:
+        encoder_position3 = encoder_position;
+        break;
+      case 4:
+        encoder_position4 = encoder_position;
+        break;
+      default:
+        break;
+    }
+
+
+    //Here starts the code that checks rotary button press
+    switch (Control) {
+      case 1:
+        if (!RE1.digitalRead(SS_SWITCH)) {  // If the rotary encoder's button is pressed
+          do {
+            delay(CommandDelay);
+          } while (!RE1.digitalRead(SS_SWITCH));  //Loop while the rotary encoder's button is pressed
+          RotaryEncoderButtonPressed = true;
+        }
+        break;
+      case 2:
+        if (!RE2.digitalRead(SS_SWITCH)) {  // If the rotary encoder's button is pressed
+          do {
+            delay(CommandDelay);
+          } while (!RE2.digitalRead(SS_SWITCH));  //Loop while the rotary encoder's button is pressed
+          RotaryEncoderButtonPressed = true;
+        }
+        break;
+      case 3:
+        if (!RE3.digitalRead(SS_SWITCH)) {  // If the rotary encoder's button is pressed
+          do {
+            delay(CommandDelay);
+          } while (!RE3.digitalRead(SS_SWITCH));  //Loop while the rotary encoder's button is pressed
+          RotaryEncoderButtonPressed = true;
+        }
+        break;
+      case 4:
+        if (!RE4.digitalRead(SS_SWITCH)) {  // If the rotary encoder's button is pressed
+          do {
+            delay(CommandDelay);
+          } while (!RE4.digitalRead(SS_SWITCH));  //Loop while the rotary encoder's button is pressed
+          RotaryEncoderButtonPressed = true;
+        }
+        break;
+      default:
+        break;
+    }
+
+    if (RotaryEncoderButtonPressed) {
+      // Now forget any encoder rotation that happened while we were in the Menu
+      RE1.setEncoderPosition(0);
+      RE2.setEncoderPosition(0);
+      RE3.setEncoderPosition(0);
+      RE4.setEncoderPosition(0);
+      encoder_position1 = 0;
+      encoder_position2 = 0;
+      encoder_position3 = 0;
+      encoder_position4 = 0;
+
+      va_end(args);
+      Serial.println(MenuTopPosition + HighlightedMenu - 1);
+      return MenuTopPosition + HighlightedMenu - 1;
+    }
+    PrintStatus();
+  } while (millis() < start + 5000);
+
+  // Now forget any encoder rotation that happened while we were in the Menu
+  RE1.setEncoderPosition(0);
+  RE2.setEncoderPosition(0);
+  RE3.setEncoderPosition(0);
+  RE4.setEncoderPosition(0);
+  encoder_position1 = 0;
+  encoder_position2 = 0;
+  encoder_position3 = 0;
+  encoder_position4 = 0;
+
+  Message = 0;
+  va_end(args);
+  Serial.println(0);
+  return 0;
 }
