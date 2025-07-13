@@ -59,6 +59,10 @@ mLink Relay;  //Define the object for the relay
 TFT_eSPI tft = TFT_eSPI();              //Defive the object to handle the TFT display
 TFT_eSprite Upper = TFT_eSprite(&tft);  //Define a sprite for the upper part of the display
 TFT_eSprite Lower = TFT_eSprite(&tft);  //Define a sprite for the lower part of the display
+TFT_eSprite ULC = TFT_eSprite(&tft);    //Define a sprite for the upper left part of the display
+TFT_eSprite URC = TFT_eSprite(&tft);    //Define a sprite for the upper right part of the display
+TFT_eSprite LLC = TFT_eSprite(&tft);    //Define a sprite for the lower left part of the display
+TFT_eSprite LRC = TFT_eSprite(&tft);    //Define a sprite for the lower right part of the display
 
 bool Tuned = false;  // True if in a specific range around the last tuned frequency, false if otherwise
 
@@ -66,6 +70,7 @@ unsigned long InfoDelay;  // The application should wait until that time to show
 int Message = 0;          // Each info message has a number. We keep here the number of the message that shows on the display
 
 long CurrentFrequencyTX = 0;   //The Current frequency of the VFO that has the TX
+long CurrentFrequencyRX = 0;   //The Current frequency of the VFO that has the RX
 long LastTunedFrequency = 0;   //The Last Tuned Frequency for the external tuner.
 long LastFailedFrequency = 0;  //The Last Failed Frequency for the external tuner.
 
@@ -140,30 +145,34 @@ void setup() {
   RE4.begin(SEESAW_ADDR4);                             //Initiate the 4th rotary encoder
   tft.init();                                          //Initiate the tft display
 
-  Upper.createSprite(320, 172);  //Create the sprite for the upper part of the display
+  Upper.createSprite(320, 112);  //Create the sprite for the upper part of the display
   Lower.createSprite(280, 29);   //Create the sprite for the lower part of the display
+  ULC.createSprite(150, 30);     //Create the sprite for the upper left corner of the display
+  LLC.createSprite(150, 30);     //Create the sprite for the lower left corner of the display
+  URC.createSprite(150, 30);     //Create the sprite for the upper right corner of the display
+  LRC.createSprite(150, 30);     //Create the sprite for the lower right corner of the display
 
   tft.setRotation(1);
   tft.setTextWrap(false);
   tft.fillScreen(TFT_BLACK);
 
-  Upper.fillRect(0, 8, 320, 172, TFT_YELLOW);
-  Upper.setFreeFont(&FreeSansBold18pt7b);
+  tft.fillRect(0, 16, 320, 164, TFT_YELLOW);
+  tft.setFreeFont(&FreeSansBold18pt7b);
   TFT_FOREGROUND = TFT_BLACK;
   TFT_BACKGROUND = TFT_YELLOW;
-  UpperPrintTextCentered(0, 320, 50, "ATCK");
-  UpperPrintTextCentered(0, 320, 90, "for");
+  PrintTextCentered(0, 320, 58, "ATCK");
+  PrintTextCentered(0, 320, 98, "for");
   if (RIG_Model == 'FTDX101MP') {
-    UpperPrintTextCentered(0, 320, 130, "Yaesu FTDX101MP");
+    PrintTextCentered(0, 320, 130, "Yaesu FTDX101MP");
   } else if (RIG_Model == 'FTDX101D') {
-    UpperPrintTextCentered(0, 320, 130, "Yaesu FTDX101D");
+    PrintTextCentered(0, 320, 138, "Yaesu FTDX101D");
   } else {
-    UpperPrintTextCentered(0, 320, 130, "unknown model");
+    PrintTextCentered(0, 320, 138, "unknown model");
   }
-  Upper.setFreeFont(&FreeSansBold12pt7b);
-  UpperPrintTextCentered(0, 320, 170, "---by SV1RQJ/F4VTR---");
-  Upper.pushSprite(0, 8);
+  tft.setFreeFont(&FreeSansBold12pt7b);
+  PrintTextCentered(0, 320, 178, "---by SV1RQJ/F4VTR---");
   delay(2000);
+  tft.fillRect(0, 8, 320, 172, TFT_EBONY);
 
   tft.setTextColor(TFT_YELLOW);
   TFT_BACKGROUND = TFT_EBONY;
@@ -216,6 +225,15 @@ void loop() {
     MenuHandle_4thEncoder();
   }
 
+  // This section is to be removed
+  //Serial.print("Test");
+
+  if (Message != 4) {  //In case we have a Message 4 (No Communication) don't display the 4 corners
+    DisplayURC();
+    DisplayLRC();
+    DisplayULC();
+    DisplayLLC();
+  }
 
   // Here we check if the transmit is on Main or Sub
   MAINSUBTX = ReadTX();
@@ -311,7 +329,7 @@ void loop() {
       TFT_FOREGROUND = TFT_YELLOW;
       UpperClearDisplay();
       Upper.setFreeFont(&FreeSansBold24pt7b);
-      UpperPrintText(8, 100, "ON AIR");
+      UpperPrintText(8, 70, "ON AIR");
 
       do {
         ONAirTime = (millis() - ONAirStartTime) / 1000;
@@ -332,21 +350,21 @@ void loop() {
         } else {
           TFT_FOREGROUND = TFT_YELLOW;
         }
-        UpperPrintText(195, 100, TimeText);
+        UpperPrintText(195, 70, TimeText);
 
         MPO = ReadPowerOut();
         if (MPO > PPO) PPO = MPO;
 
         Upper.setFreeFont(&FreeSansBold12pt7b);
         TFT_FOREGROUND = TFT_YELLOW;
-        UpperPrintText(180, 140, String(NormalizePO(PPO)) + " W ");
-        UpperPrintText(110, 140, "PEP :");
-        Upper.pushSprite(0, 8);
+        UpperPrintText(180, 100, String(NormalizePO(PPO)) + " W ");
+        UpperPrintText(110, 100, "PEP :");
+        Upper.pushSprite(0, 38);
       } while (digitalRead(TXGND) == 0);
 
       Upper.setFreeFont(&FreeSansBold24pt7b);
-      UpperPrintText(8, 100, "Air time");
-      Upper.pushSprite(0, 8);
+      UpperPrintText(8, 70, "Air time");
+      Upper.pushSprite(0, 38);
       InfoDelay = millis() + 5000;
       Message = 0;
     }
@@ -357,29 +375,37 @@ void loop() {
       TFT_FOREGROUND = TFT_YELLOW;
       UpperClearDisplay();
       Upper.setFreeFont(&FreeSansBold24pt7b);
-      UpperPrintTextCentered(0, 320, 60, "No tuner");
-      UpperPrintTextCentered(0, 320, 110, "on this");
-      UpperPrintTextCentered(0, 320, 160, "antenna!");
-      Upper.pushSprite(0, 8);
+      UpperPrintTextCentered(0, 320, 60, "No tuner on");
+      UpperPrintTextCentered(0, 320, 105, "this antenna!");
+      Upper.pushSprite(0, 38);
       Message = 5;
     }
   } else {
     if (Message != 4) {
       TFT_BACKGROUND = TFT_EBONY;
       TFT_FOREGROUND = TFT_YELLOW;
-      UpperClearDisplay();
-      Upper.setFreeFont(&FreeSansBold18pt7b);
-      UpperPrintTextCentered(0, 320, 36, "Communication");
-      UpperPrintTextCentered(0, 320, 69, "error. Pls check");
-      UpperPrintTextCentered(0, 320, 102, "your serial cable");
-      UpperPrintTextCentered(0, 320, 135, "and set the 232C");
-      UpperPrintTextCentered(0, 320, 168, "rate to 38400bps");
-      Upper.drawRect(0, 0, 320, 172, TFT_RED);
-      Upper.drawRect(1, 1, 318, 170, TFT_RED);
-      Upper.pushSprite(0, 8);
+      tft.setFreeFont(&FreeSansBold18pt7b);
+      tft.fillRect(0, 8, 320, 172, TFT_EBONY);
+      tft.drawRect(0, 8, 320, 172, TFT_RED);
+      tft.drawRect(1, 9, 318, 170, TFT_RED);
+      do {
+        PrintTextCentered(2, 318, 80, "Communication");
+        PrintTextCentered(2, 318, 115, "error !");
+        delay(2000);
+        if (ReadPower() != 0) break;
+        tft.fillRect(2, 10, 317, 168, TFT_EBONY);
+        PrintTextCentered(2, 317, 60, "Pls check your");
+        PrintTextCentered(2, 317, 96, "serial cable and");
+        PrintTextCentered(2, 317, 132, "set the 232C rate");
+        PrintTextCentered(2, 317, 168, "to 38400bps");
+        delay(2000);
+        tft.fillRect(2, 10, 317, 168, TFT_EBONY);
+      } while (ReadPower() == 0);
+      tft.fillRect(0, 8, 320, 172, TFT_EBONY);
+      //Upper.pushSprite(0, 38);
       Message = 4;
     }
-    PrintStatus();
+    InfoScreen();
   }
 }
 
@@ -432,7 +458,7 @@ void ActivateExternalTuner() {  //This function activates internal tuner, check 
   TFT_BACKGROUND = TFT_EBONY;
   ClearDisplay();
   tft.setFreeFont(&FreeSansBold24pt7b);
-  PrintTextCentered(0, 320, 100, "Tuning...");
+  PrintTextCentered(0, 320, 113, "Tuning...");
 
   Serial2.print("TX1;");  //Transmit
 
@@ -468,20 +494,20 @@ void ActivateExternalTuner() {  //This function activates internal tuner, check 
     tft.setFreeFont(&FreeSansBold12pt7b);
     if (SWR <= 13) {
       TFT_FOREGROUND = TFT_GREEN;
-      PrintTextCentered(0, 320, 130, "SWR ~1.1");
+      PrintTextCentered(0, 320, 140, "SWR ~1.1");
     } else if (SWR <= 26) {
       TFT_FOREGROUND = TFT_GREEN;
-      PrintTextCentered(0, 320, 130, "SWR ~1.2");
+      PrintTextCentered(0, 320, 140, "SWR ~1.2");
     } else if (SWR <= 39) {
       TFT_FOREGROUND = TFT_GREEN;
-      PrintTextCentered(0, 320, 130, "SWR ~1.5");
+      PrintTextCentered(0, 320, 140, "SWR ~1.5");
     } else if (SWR <= 80) {
       TFT_FOREGROUND = TFT_YELLOW;
-      PrintTextCentered(0, 320, 130, "SWR < 2");
+      PrintTextCentered(0, 320, 140, "SWR < 2");
     }
 
     tft.setFreeFont(&FreeSansBold24pt7b);
-    PrintTextCentered(0, 320, 100, "TUNED");
+    PrintTextCentered(0, 320, 113, "TUNED");
 
     LastTunedFrequency = CurrentFrequencyTX;  //LastTunedFrequency is used by external tuner.
     LastFailedFrequency = 0;
@@ -571,6 +597,8 @@ int ReadPowerOut() {
     Result = Result + a;
     if (a == ';') {
       Result = Result.substring(3, Result.length() - 4);
+      //Serial.print("Meter = ");
+      //Serial.println(Result);
     }
   }
   return Result.toInt();
@@ -856,9 +884,9 @@ void InfoScreen() {                  // Displays messages on the display
   if (!Tuned && Message != 1) {
     UpperClearDisplay();
     Upper.setFreeFont(&FreeSansBold24pt7b);
-    UpperPrintTextCentered(0, 320, 90, "NOT");
-    UpperPrintTextCentered(0, 320, 135, "TUNED");
-    Upper.pushSprite(0, 8);
+    UpperPrintTextCentered(0, 320, 60, "NOT");
+    UpperPrintTextCentered(0, 320, 105, "TUNED");
+    Upper.pushSprite(0, 38);
     Message = 1;
   }
 
@@ -870,8 +898,8 @@ void InfoScreen() {                  // Displays messages on the display
     } else {
       TFT_FOREGROUND = TFT_YELLOW;
     }
-    UpperPrintTextCentered(0, 320, 100, "TUNED");
-    Upper.pushSprite(0, 8);
+    UpperPrintTextCentered(0, 320, 75, "TUNED");
+    Upper.pushSprite(0, 38);
     Message = 2;
   }
 
@@ -961,15 +989,19 @@ void PrintStatus(void) {
           TFT_BACKGROUND = TFT_EBONY;
           UpperClearDisplay();
           Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "PWR: " + String(a) + "W");
-          Upper.pushSprite(0, 8);
+          UpperPrintTextCentered(0, 320, 75, "PWR: " + String(a) + "W");  //Print in the upper screen
+          Upper.pushSprite(0, 38);
           Timer = millis();
         }
         Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
         Lower.setFreeFont(&FreeSansBold12pt7b);
         TFT_BACKGROUND = TFT_BLACK;
-        LowerPrintText(1, 28, "PWR: " + String(a) + "W");
+        LowerPrintText(1, 28, "PWR: " + String(a) + "W");  //Print to the lower screen
         Lower.pushSprite(0, 181);
+        if (ExtendedParameter1 == 6) { DisplayULC(); }  //Print to the right corner too
+        if (ExtendedParameter2 == 6) { DisplayLLC(); }
+        if (ExtendedParameter3 == 6) { DisplayLRC(); }
+        if (ExtendedParameter4 == 6) { DisplayURC(); }
         PreviousPower = a;
       }
       if (a == 0) Timer = 0;  //If the power = 0 then no need to wait
@@ -979,12 +1011,16 @@ void PrintStatus(void) {
 }
 
 void SystemMenu() {
+  Upper.deleteSprite();
+  Upper.createSprite(320, 172);
   int ChosenMenu = DisplayMenu(7, 1, 1, "System Menu", "Frequency steps", "Roofing filter", "RF Power", "Transmit timer", "2nd relay", "Save parameters");
 
   if (ChosenMenu > 0) {
     SubMenu(String(ChosenMenu));
   }
-
+  Upper.deleteSprite();
+  Upper.createSprite(320, 112);
+  ClearDisplay();
   Message = 0;
 }
 
@@ -1377,7 +1413,7 @@ void ClearDisplay() {
 }
 
 void UpperClearDisplay() {
-  Upper.fillRect(0, 0, 320, 172, TFT_BACKGROUND);
+  Upper.fillRect(0, 0, Upper.width(), Upper.height(), TFT_BACKGROUND);
 }
 
 void FlushSerialInput() {
@@ -1390,11 +1426,18 @@ void FlushSerialInput() {
 void MenuHandle_1stEncoder() {
   int HighlightedMenu = ExtendedParameter1;  //The menu that is highlighted is the one already chosen for this encoder
 
+  Upper.deleteSprite();
+  Upper.createSprite(320, 172);
+
   HighlightedMenu = DisplayMenu(8, ExtendedParameter1, 1, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
 
   if (HighlightedMenu != 0) {
     ExtendedParameter1 = HighlightedMenu;
   }
+
+  Upper.deleteSprite();
+  Upper.createSprite(320, 112);
+  ClearDisplay();
 
   Message = 0;
   PrintStatus();
@@ -1403,11 +1446,18 @@ void MenuHandle_1stEncoder() {
 void MenuHandle_2ndEncoder() {
   int HighlightedMenu = ExtendedParameter2;  //The menu that is highlighted is the one already chosen for this encoder
 
+  Upper.deleteSprite();
+  Upper.createSprite(320, 172);
+
   HighlightedMenu = DisplayMenu(8, ExtendedParameter2, 2, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
 
   if (HighlightedMenu != 0) {
     ExtendedParameter2 = HighlightedMenu;
   }
+
+  Upper.deleteSprite();
+  Upper.createSprite(320, 112);
+  ClearDisplay();
 
   Message = 0;
   PrintStatus();
@@ -1416,11 +1466,18 @@ void MenuHandle_2ndEncoder() {
 void MenuHandle_3rdEncoder() {
   int HighlightedMenu = ExtendedParameter3;  //The menu that is highlighted is the one already chosen for this encoder
 
+  Upper.deleteSprite();
+  Upper.createSprite(320, 172);
+
   HighlightedMenu = DisplayMenu(8, ExtendedParameter3, 3, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
 
   if (HighlightedMenu != 0) {
     ExtendedParameter3 = HighlightedMenu;
   }
+
+  Upper.deleteSprite();
+  Upper.createSprite(320, 112);
+  ClearDisplay();
 
   Message = 0;
   PrintStatus();
@@ -1429,11 +1486,18 @@ void MenuHandle_3rdEncoder() {
 void MenuHandle_4thEncoder() {
   int HighlightedMenu = ExtendedParameter4;  //The menu that is highlighted is the one already chosen for this encoder
 
+  Upper.deleteSprite();
+  Upper.createSprite(320, 172);
+
   HighlightedMenu = DisplayMenu(8, ExtendedParameter4, 4, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
 
   if (HighlightedMenu != 0) {
     ExtendedParameter4 = HighlightedMenu;
   }
+
+  Upper.deleteSprite();
+  Upper.createSprite(320, 112);
+  ClearDisplay();
 
   Message = 0;
   PrintStatus();
@@ -1448,7 +1512,7 @@ void ReadEncoder() {  //Unified ReadEncoder function
   int PowerLevel;
   int32_t new_position;
   int32_t encoder_position;
-  long CurrentFrequencyRX;
+  //long CurrentFrequencyRX;
   int RotatorEncoder;  //Which is the rotaror that we work with.
   int ExtendedParameter;
   int i = 0;
@@ -1650,35 +1714,35 @@ void ReadEncoder() {  //Unified ReadEncoder function
       switch (ExtendedParameter) {
         case 1:
           Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "SQL: " + String(ReadSQL()));
+          UpperPrintTextCentered(0, 320, 75, "SQL: " + String(ReadSQL()));
           break;
         case 2:
           Upper.setFreeFont(&FreeSansBold24pt7b);
           if (Memory != ReadMemory()) {
-            UpperPrintTextCentered(0, 320, 100, "MEM: " + String(Memory) + " E");
+            UpperPrintTextCentered(0, 320, 75, "MEM: " + String(Memory) + " E");
           } else {
-            UpperPrintTextCentered(0, 320, 100, "MEM: " + String(Memory));
+            UpperPrintTextCentered(0, 320, 75, "MEM: " + String(Memory));
           }
           break;
         case 3:
           Upper.setFreeFont(&FreeSansBold24pt7b);
           if (NotchWidth == 0) {
-            UpperPrintTextCentered(0, 320, 100, "Narrow notch");
+            UpperPrintTextCentered(0, 320, 75, "Narrow notch");
           } else if (NotchWidth == 1) {
-            UpperPrintTextCentered(0, 320, 100, "Wide notch");
+            UpperPrintTextCentered(0, 320, 75, "Wide notch");
           }
           break;
         case 4:
           Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "Cont W: " + String(ContourWidth));
+          UpperPrintTextCentered(0, 320, 75, "Cont W: " + String(ContourWidth));
           break;
         case 5:
           Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "Cont L: " + String(ContourLevel));
+          UpperPrintTextCentered(0, 320, 75, "Cont L: " + String(ContourLevel));
           break;
         case 6:
           Upper.setFreeFont(&FreeSansBold24pt7b);
-          UpperPrintTextCentered(0, 320, 100, "PWR: " + String(PowerLevel) + "W");
+          UpperPrintTextCentered(0, 320, 75, "PWR: " + String(PowerLevel) + "W");
           Lower.fillRect(0, 0, Lower.width(), Lower.height(), TFT_BLACK);
           Lower.setFreeFont(&FreeSansBold12pt7b);
           TFT_BACKGROUND = TFT_BLACK;
@@ -1690,15 +1754,33 @@ void ReadEncoder() {  //Unified ReadEncoder function
           //The following block of code is done to avoid some flickering while changing the frequentcy on the tft screen
           Upper.setFreeFont(&FreeSansBold24pt7b);
           if (CurrentFrequencyRX > 9999999) {
-            UpperPrintTextCentered(0, 320, 100, String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8));
+            UpperPrintTextCentered(0, 320, 75, String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8));
           } else {
-            UpperPrintTextCentered(0, 320, 100, String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7));
+            UpperPrintTextCentered(0, 320, 75, String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7));
           }
           break;
         default:
           break;
       }
-      Upper.pushSprite(0, 8);
+      Upper.pushSprite(0, 38);
+
+      switch (RotatorEncoder) {  //Update the display on the right corner
+        case 1:
+          DisplayULC();
+          break;
+        case 2:
+          DisplayLLC();
+          break;
+        case 3:
+          DisplayLRC();
+          break;
+        case 4:
+          DisplayURC();
+          break;
+        default:
+          break;
+      }
+
       start = millis();
     }
 
@@ -1886,11 +1968,13 @@ void LowerPrintTextCentered(int xl, int xr, int y, String text) {  //xl indicate
 int NormalizePO(int x) {
   //int PowerArray[23] = { 0, 29, 54, 69, 82, 97, 111, 120, 130, 139, 149, 157, 163, 171, 176, 184, 190, 197, 203, 210, 216, 223, 255 };  //My scale
   //int PowerArray[23] = { 0, 30, 43, 63, 79, 94, 105, 115, 125, 135, 145, 153, 159, 164, 169, 174, 179, 186, 193, 200, 206, 212, 255 };  //Optimistic scale
+  //int PowerArray[23] = { 0, 23, 44, 67, 87, 103, 115, 130, 139, 147, 155, 164, 171, 176, 183, 191, 196, 203, 208, 213, 220, 227, 255 }; //What read from the m eter using the RF gain method
+  //int PowerArray[23] = { 0, 30, 55, 69, 82, 97, 111, 120, 131, 141, 150, 160, 167, 174, 179, 187, 193, 198, 206, 212, 217, 225, 255 };  //What read from the m eter using the RTTY method
   int Array_end;
   int i, Result;
 
 #if (RIG_Model == 'FTDX101MP')
-  int PowerArray[23] = { 0, 29, 54, 69, 82, 97, 111, 120, 130, 139, 149, 157, 163, 171, 176, 184, 190, 197, 203, 210, 216, 223, 255 };
+  int PowerArray[23] = { 0, 30, 55, 69, 82, 97, 111, 120, 131, 141, 150, 160, 167, 174, 179, 187, 193, 198, 206, 212, 217, 225, 255 };
   Array_end = 22;
 #else if (RIG_Model == 'FTDX101D')
   int PowerArray[13] = { 0, 32, 54, 82, 104, 128, 147, 159, 169, 183, 193, 200, 255 };
@@ -2121,4 +2205,252 @@ int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = t
   va_end(args);
   Serial.println(0);
   return 0;
+}
+
+void DisplayURC(void) {
+  String Result;
+
+  URC.fillRect(0, 0, URC.width(), URC.height(), TFT_EBONY);
+  URC.setFreeFont(&FreeSansBold12pt7b);
+  URC.setTextColor(TFT_WHITE, TFT_EBONY);
+  URC.setTextDatum(BR_DATUM);
+
+
+  //Serial.println(ExtendedParameter4);
+
+  switch (ExtendedParameter4) {
+    case 1:
+      Result = "SQL " + String(ReadSQL());
+      URC.drawString(Result, 150, 30, 1);
+      break;
+    case 2:
+      Result = "MEM " + String(ReadMemory());
+      URC.drawString(Result, 150, 30, 1);
+      break;
+    case 3:
+      if (ReadNotchWidth() == 0) {
+        Result = "Notch N";
+      } else {
+        Result = "Notch W";
+      }
+      URC.drawString(Result, 150, 30, 1);
+      break;
+    case 4:  //Contour width
+      Result = "Cont. W " + String(ReadContourWidth());
+      if (ReadContourWidth() == 10) {
+        URC.setTextColor(TFT_YELLOW, TFT_EBONY);
+      } else {
+        URC.setTextColor(TFT_WHITE, TFT_EBONY);
+      }
+      URC.drawString(Result, 150, 30, 1);
+      break;
+    case 5:  //Contour level
+      Result = "Cont. L " + String(ReadContourLevel());
+      URC.drawString(Result, 150, 30, 1);
+      break;
+    case 6:  //Power level
+      Result = "Power " + String(ReadPower()) + "W";
+      URC.drawString(Result, 150, 30, 1);
+      break;
+    case 7:  //Frequency
+      CurrentFrequencyRX = ReadFrequency(VFORead());
+      if (CurrentFrequencyRX > 9999999) {
+        Result = "F:" + String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8);
+      } else {
+        Result = "F:" + String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7);
+      }
+
+      URC.drawString(Result, 150, 30, 1);
+
+      break;
+    default:
+      break;
+  }
+  URC.pushSprite(165, 8);
+}
+
+void DisplayLRC(void) {
+  String Result;
+
+  LRC.fillRect(0, 0, LRC.width(), LRC.height(), TFT_EBONY);
+  LRC.setFreeFont(&FreeSansBold12pt7b);
+  LRC.setTextColor(TFT_WHITE, TFT_EBONY);
+  LRC.setTextDatum(BR_DATUM);
+
+
+  //Serial.println(ExtendedParameter4);
+
+  switch (ExtendedParameter3) {
+    case 1:
+      Result = "SQL " + String(ReadSQL());
+      LRC.drawString(Result, 150, 30, 1);
+      break;
+    case 2:
+      Result = "MEM " + String(ReadMemory());
+      LRC.drawString(Result, 150, 30, 1);
+      break;
+    case 3:
+      if (ReadNotchWidth() == 0) {
+        Result = "Notch N";
+      } else {
+        Result = "Notch W";
+      }
+      LRC.drawString(Result, 150, 30, 1);
+      break;
+    case 4:  //Contour width
+      Result = "Cont. W " + String(ReadContourWidth());
+      if (ReadContourWidth() == 10) {
+        LRC.setTextColor(TFT_YELLOW, TFT_EBONY);
+      } else {
+        LRC.setTextColor(TFT_WHITE, TFT_EBONY);
+      }
+      LRC.drawString(Result, 150, 30, 1);
+      break;
+    case 5:  //Contour level
+      Result = "Cont. L " + String(ReadContourLevel());
+      LRC.drawString(Result, 150, 30, 1);
+      break;
+    case 6:  //Power level
+      Result = "Power " + String(ReadPower()) + "W";
+      LRC.drawString(Result, 150, 30, 1);
+      break;
+    case 7:  //Frequency
+      CurrentFrequencyRX = ReadFrequency(VFORead());
+      if (CurrentFrequencyRX > 9999999) {
+        Result = "F:" + String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8);
+      } else {
+        Result = "F:" + String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7);
+      }
+
+      LRC.drawString(Result, 150, 30, 1);
+
+      break;
+    default:
+      break;
+  }
+  LRC.pushSprite(165, 150);
+}
+
+void DisplayULC(void) {
+  String Result;
+
+  ULC.fillRect(0, 0, ULC.width(), ULC.height(), TFT_EBONY);
+  ULC.setFreeFont(&FreeSansBold12pt7b);
+  ULC.setTextColor(TFT_WHITE, TFT_EBONY);
+  ULC.setTextDatum(BL_DATUM);
+
+
+  //Serial.println(ExtendedParameter4);
+
+  switch (ExtendedParameter1) {
+    case 1:
+      Result = "SQL " + String(ReadSQL());
+      ULC.drawString(Result, 0, 30, 1);
+      break;
+    case 2:
+      Result = "MEM " + String(ReadMemory());
+      ULC.drawString(Result, 0, 30, 1);
+      break;
+    case 3:
+      if (ReadNotchWidth() == 0) {
+        Result = "Notch N";
+      } else {
+        Result = "Notch W";
+      }
+      ULC.drawString(Result, 0, 30, 1);
+      break;
+    case 4:  //Contour width
+      Result = "Cont. W " + String(ReadContourWidth());
+      if (ReadContourWidth() == 10) {
+        ULC.setTextColor(TFT_YELLOW, TFT_EBONY);
+      } else {
+        ULC.setTextColor(TFT_WHITE, TFT_EBONY);
+      }
+      ULC.drawString(Result, 0, 30, 1);
+      break;
+    case 5:  //Contour level
+      Result = "Cont. L " + String(ReadContourLevel());
+      ULC.drawString(Result, 0, 30, 1);
+      break;
+    case 6:  //Power level
+      Result = "Power " + String(ReadPower()) + "W";
+      ULC.drawString(Result, 0, 30, 1);
+      break;
+    case 7:  //Frequency
+      CurrentFrequencyRX = ReadFrequency(VFORead());
+      if (CurrentFrequencyRX > 9999999) {
+        Result = "F:" + String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8);
+      } else {
+        Result = "F:" + String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7);
+      }
+
+      ULC.drawString(Result, 0, 30, 1);
+
+      break;
+    default:
+      break;
+  }
+  ULC.pushSprite(5, 8);
+}
+
+void DisplayLLC(void) {
+  String Result;
+
+  LLC.fillRect(0, 0, LLC.width(), LLC.height(), TFT_EBONY);
+  LLC.setFreeFont(&FreeSansBold12pt7b);
+  LLC.setTextColor(TFT_WHITE, TFT_EBONY);
+  LLC.setTextDatum(BL_DATUM);
+
+
+  //Serial.println(ExtendedParameter4);
+
+  switch (ExtendedParameter2) {
+    case 1:
+      Result = "SQL " + String(ReadSQL());
+      LLC.drawString(Result, 0, 30, 1);
+      break;
+    case 2:
+      Result = "MEM " + String(ReadMemory());
+      LLC.drawString(Result, 0, 30, 1);
+      break;
+    case 3:
+      if (ReadNotchWidth() == 0) {
+        Result = "Notch N";
+      } else {
+        Result = "Notch W";
+      }
+      LLC.drawString(Result, 0, 30, 1);
+      break;
+    case 4:  //Contour width
+      Result = "Cont. W " + String(ReadContourWidth());
+      if (ReadContourWidth() == 10) {
+        LLC.setTextColor(TFT_YELLOW, TFT_EBONY);
+      } else {
+        LLC.setTextColor(TFT_WHITE, TFT_EBONY);
+      }
+      LLC.drawString(Result, 0, 30, 1);
+      break;
+    case 5:  //Contour level
+      Result = "Cont. L " + String(ReadContourLevel());
+      LLC.drawString(Result, 0, 30, 1);
+      break;
+    case 6:  //Power level
+      Result = "Power " + String(ReadPower()) + "W";
+      LLC.drawString(Result, 0, 30, 1);
+      break;
+    case 7:  //Frequency
+      CurrentFrequencyRX = ReadFrequency(VFORead());
+      if (CurrentFrequencyRX > 9999999) {
+        Result = "F:" + String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8);
+      } else {
+        Result = "F:" + String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7);
+      }
+
+      LLC.drawString(Result, 0, 30, 1);
+
+      break;
+    default:
+      break;
+  }
+  LLC.pushSprite(5, 150);
 }
