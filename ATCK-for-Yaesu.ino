@@ -64,6 +64,8 @@ TFT_eSprite URC = TFT_eSprite(&tft);    //Define a sprite for the upper right pa
 TFT_eSprite LLC = TFT_eSprite(&tft);    //Define a sprite for the lower left part of the display
 TFT_eSprite LRC = TFT_eSprite(&tft);    //Define a sprite for the lower right part of the display
 
+String Build = "250827";
+
 bool Tuned = false;  // True if in a specific range around the last tuned frequency, false if otherwise
 
 unsigned long InfoDelay;  // The application should wait until that time to show another info on the upper screen (in milliseconds from the start of the initilization of the ATCK device)
@@ -106,14 +108,16 @@ unsigned long SecondRelayActivationMillis = 0;
 unsigned long SecondRelayDeactivationMillis = 0;
 bool RLY1 = false;  //To follow the status of RLY1
 
+unsigned long MeasureTime;
+
 int PPO;  //Peak Power Out
 
 volatile unsigned long start;  //This value is used when we are in a menu, to mark the the start of inactivity time before we auto-exit the menu
 
-int ExtendedParameter1;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency
-int ExtendedParameter2;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency
-int ExtendedParameter3;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency
-int ExtendedParameter4;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency
+int ExtendedParameter1;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency, 8- Frequency Main, 9- Frequency Sub
+int ExtendedParameter2;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency, 8- Frequency Main, 9- Frequency Sub
+int ExtendedParameter3;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency, 8- Frequency Main, 9- Frequency Sub
+int ExtendedParameter4;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency, 8- Frequency Main, 9- Frequency Sub
 
 void setup() {
   //seting the pin mode of the pins that we use
@@ -156,7 +160,7 @@ void setup() {
   tft.setTextWrap(false);
   tft.fillScreen(TFT_BLACK);
 
-  tft.fillRect(0, 16, 320, 164, TFT_YELLOW);
+  tft.fillRect(0, 16, 320, 194, TFT_YELLOW);
   tft.setFreeFont(&FreeSansBold18pt7b);
   TFT_FOREGROUND = TFT_BLACK;
   TFT_BACKGROUND = TFT_YELLOW;
@@ -171,7 +175,9 @@ void setup() {
   }
   tft.setFreeFont(&FreeSansBold12pt7b);
   PrintTextCentered(0, 320, 178, "---by SV1RQJ/F4VTR---");
+  PrintTextCentered(0, 320, 205, "Build " + Build);
   delay(2000);
+  tft.fillRect(0, 0, 320, 240, TFT_BLACK);
   tft.fillRect(0, 8, 320, 172, TFT_EBONY);
 
   tft.setTextColor(TFT_YELLOW);
@@ -435,7 +441,7 @@ bool IsInTunedFrequencies(long x) {  //Check if we are in the range of the last 
   return false;
 }
 
-void ActivateExternalTuner() {  //This function activates internal tuner, check that thuning is done and shifts/stores the tuned frequencies
+void ActivateExternalTuner() {  //This function activates external tuner
 
   long PreviousFrequency;  // Changing mode (for the tuning) also changes the current frequency. We keep track of the original frequency in order to restore it each time we change mode.
 
@@ -451,8 +457,9 @@ void ActivateExternalTuner() {  //This function activates internal tuner, check 
   SetMode(MAINSUBTX, "5");                     //Set AM Mode
   SetFrequency(MAINSUBTX, PreviousFrequency);  //Correct the frequency
   Serial2.print("PC010;");                     //Set power at 10 watts
-  PreviousMic = ReadMic();                     //Read Mic gain after changing to AM
-  SetMic(0);                                   //Mute Mic
+  Serial.println("Power:" + String(millis() - MeasureTime));
+  PreviousMic = ReadMic();  //Read Mic gain after changing to AM
+  SetMic(0);                //Mute Mic
 
   TFT_FOREGROUND = TFT_YELLOW;
   TFT_BACKGROUND = TFT_EBONY;
@@ -1429,7 +1436,7 @@ void MenuHandle_1stEncoder() {
   Upper.deleteSprite();
   Upper.createSprite(320, 172);
 
-  HighlightedMenu = DisplayMenu(8, ExtendedParameter1, 1, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
+  HighlightedMenu = DisplayMenu(10, ExtendedParameter1, 1, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency Active", "Frequency Main", "Frequency Sub");
 
   if (HighlightedMenu != 0) {
     ExtendedParameter1 = HighlightedMenu;
@@ -1449,7 +1456,7 @@ void MenuHandle_2ndEncoder() {
   Upper.deleteSprite();
   Upper.createSprite(320, 172);
 
-  HighlightedMenu = DisplayMenu(8, ExtendedParameter2, 2, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
+  HighlightedMenu = DisplayMenu(10, ExtendedParameter2, 2, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency Active", "Frequency Main", "Frequency Sub");
 
   if (HighlightedMenu != 0) {
     ExtendedParameter2 = HighlightedMenu;
@@ -1469,7 +1476,7 @@ void MenuHandle_3rdEncoder() {
   Upper.deleteSprite();
   Upper.createSprite(320, 172);
 
-  HighlightedMenu = DisplayMenu(8, ExtendedParameter3, 3, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
+  HighlightedMenu = DisplayMenu(10, ExtendedParameter3, 3, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency Active", "Frequency Main", "Frequency Sub");
 
   if (HighlightedMenu != 0) {
     ExtendedParameter3 = HighlightedMenu;
@@ -1489,7 +1496,7 @@ void MenuHandle_4thEncoder() {
   Upper.deleteSprite();
   Upper.createSprite(320, 172);
 
-  HighlightedMenu = DisplayMenu(8, ExtendedParameter4, 4, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency");
+  HighlightedMenu = DisplayMenu(10, ExtendedParameter4, 4, "Select parameter", "Squelch", "Memory Channel", "Notch", "Contour width", "Contour level", "Power level", "Frequency Active", "Frequency Main", "Frequency Sub");
 
   if (HighlightedMenu != 0) {
     ExtendedParameter4 = HighlightedMenu;
@@ -1516,6 +1523,7 @@ void ReadEncoder() {  //Unified ReadEncoder function
   int RotatorEncoder;  //Which is the rotaror that we work with.
   int ExtendedParameter;
   int i = 0;
+  long Frequency = 0;
   start = millis();
 
   SQL = ReadSQL();
@@ -1645,6 +1653,18 @@ void ReadEncoder() {  //Unified ReadEncoder function
             CurrentFrequencyRX = CurrentFrequencyRX + Steps * (encoder_position - new_position);
             SetFrequency(VFORead(), CurrentFrequencyRX);
             break;
+          case 8:
+            Frequency = ReadFrequency(0);
+            Frequency = Frequency / Steps * Steps;
+            Frequency = Frequency + Steps * (encoder_position - new_position);
+            SetFrequency(0, Frequency);
+            break;
+          case 9:
+            Frequency = ReadFrequency(1);
+            Frequency = Frequency / Steps * Steps;
+            Frequency = Frequency + Steps * (encoder_position - new_position);
+            SetFrequency(1, Frequency);
+            break;
           default:
             break;
         }
@@ -1686,6 +1706,18 @@ void ReadEncoder() {  //Unified ReadEncoder function
             CurrentFrequencyRX = (CurrentFrequencyRX + (Steps - 1)) / Steps * Steps;
             CurrentFrequencyRX = CurrentFrequencyRX - Steps * (new_position - encoder_position);
             SetFrequency(VFORead(), CurrentFrequencyRX);
+            break;
+          case 8:
+            Frequency = ReadFrequency(0);
+            Frequency = (Frequency + (Steps - 1)) / Steps * Steps;
+            Frequency = Frequency - Steps * (new_position - encoder_position);
+            SetFrequency(0, Frequency);
+            break;
+          case 9:
+            Frequency = ReadFrequency(1);
+            Frequency = (Frequency + (Steps - 1)) / Steps * Steps;
+            Frequency = Frequency - Steps * (new_position - encoder_position);
+            SetFrequency(1, Frequency);
             break;
           default:
             break;
@@ -1757,6 +1789,24 @@ void ReadEncoder() {  //Unified ReadEncoder function
             UpperPrintTextCentered(0, 320, 75, String(CurrentFrequencyRX).substring(0, 2) + "." + String(CurrentFrequencyRX).substring(2, 5) + "." + String(CurrentFrequencyRX).substring(5, 8));
           } else {
             UpperPrintTextCentered(0, 320, 75, String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7));
+          }
+          break;
+        case 8:
+          //The following block of code is done to avoid some flickering while changing the frequentcy on the tft screen
+          Upper.setFreeFont(&FreeSansBold24pt7b);
+          if (Frequency > 9999999) {
+            UpperPrintTextCentered(0, 320, 75, String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8));
+          } else {
+            UpperPrintTextCentered(0, 320, 75, String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7));
+          }
+          break;
+        case 9:
+          //The following block of code is done to avoid some flickering while changing the frequentcy on the tft screen
+          Upper.setFreeFont(&FreeSansBold24pt7b);
+          if (Frequency > 9999999) {
+            UpperPrintTextCentered(0, 320, 75, String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8));
+          } else {
+            UpperPrintTextCentered(0, 320, 75, String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7));
           }
           break;
         default:
@@ -1993,6 +2043,8 @@ int NormalizePO(int x) {
 }
 
 void Interupt1() {
+  //Serial.println("Ïnt:" + String(millis()));
+  MeasureTime = millis();
   if (digitalRead(TXGND) == 0) {
     start = 0;  // Exit from possible menus by setting to 0 all user input wait time. Give priority to handle the transmition.
   }
@@ -2209,6 +2261,7 @@ int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = t
 
 void DisplayURC(void) {
   String Result;
+  long Frequency;
 
   URC.fillRect(0, 0, URC.width(), URC.height(), TFT_EBONY);
   URC.setFreeFont(&FreeSansBold12pt7b);
@@ -2221,11 +2274,9 @@ void DisplayURC(void) {
   switch (ExtendedParameter4) {
     case 1:
       Result = "SQL " + String(ReadSQL());
-      URC.drawString(Result, 150, 30, 1);
       break;
     case 2:
       Result = "MEM " + String(ReadMemory());
-      URC.drawString(Result, 150, 30, 1);
       break;
     case 3:
       if (ReadNotchWidth() == 0) {
@@ -2233,7 +2284,6 @@ void DisplayURC(void) {
       } else {
         Result = "Notch W";
       }
-      URC.drawString(Result, 150, 30, 1);
       break;
     case 4:  //Contour width
       Result = "Cont. W " + String(ReadContourWidth());
@@ -2242,15 +2292,17 @@ void DisplayURC(void) {
       } else {
         URC.setTextColor(TFT_WHITE, TFT_EBONY);
       }
-      URC.drawString(Result, 150, 30, 1);
       break;
     case 5:  //Contour level
+      if (ReadContourLevel() == -15) {
+        URC.setTextColor(TFT_YELLOW, TFT_EBONY);
+      } else {
+        URC.setTextColor(TFT_WHITE, TFT_EBONY);
+      }
       Result = "Cont. L " + String(ReadContourLevel());
-      URC.drawString(Result, 150, 30, 1);
       break;
     case 6:  //Power level
       Result = "Power " + String(ReadPower()) + "W";
-      URC.drawString(Result, 150, 30, 1);
       break;
     case 7:  //Frequency
       CurrentFrequencyRX = ReadFrequency(VFORead());
@@ -2259,18 +2311,33 @@ void DisplayURC(void) {
       } else {
         Result = "F:" + String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7);
       }
-
-      URC.drawString(Result, 150, 30, 1);
-
+      break;
+    case 8:  //Frequency Main
+      Frequency = ReadFrequency(0);
+      if (Frequency > 9999999) {
+        Result = "M:" + String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8);
+      } else {
+        Result = "M:" + String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7);
+      }
+      break;
+    case 9:  //Frequency Sub
+      Frequency = ReadFrequency(1);
+      if (Frequency > 9999999) {
+        Result = "S:" + String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8);
+      } else {
+        Result = "S:" + String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7);
+      }
       break;
     default:
       break;
   }
+  URC.drawString(Result, 150, 30, 1);
   URC.pushSprite(165, 8);
 }
 
 void DisplayLRC(void) {
   String Result;
+  long Frequency;
 
   LRC.fillRect(0, 0, LRC.width(), LRC.height(), TFT_EBONY);
   LRC.setFreeFont(&FreeSansBold12pt7b);
@@ -2283,11 +2350,9 @@ void DisplayLRC(void) {
   switch (ExtendedParameter3) {
     case 1:
       Result = "SQL " + String(ReadSQL());
-      LRC.drawString(Result, 150, 30, 1);
       break;
     case 2:
       Result = "MEM " + String(ReadMemory());
-      LRC.drawString(Result, 150, 30, 1);
       break;
     case 3:
       if (ReadNotchWidth() == 0) {
@@ -2295,7 +2360,6 @@ void DisplayLRC(void) {
       } else {
         Result = "Notch W";
       }
-      LRC.drawString(Result, 150, 30, 1);
       break;
     case 4:  //Contour width
       Result = "Cont. W " + String(ReadContourWidth());
@@ -2304,15 +2368,17 @@ void DisplayLRC(void) {
       } else {
         LRC.setTextColor(TFT_WHITE, TFT_EBONY);
       }
-      LRC.drawString(Result, 150, 30, 1);
       break;
     case 5:  //Contour level
+      if (ReadContourLevel() == -15) {
+        LRC.setTextColor(TFT_YELLOW, TFT_EBONY);
+      } else {
+        LRC.setTextColor(TFT_WHITE, TFT_EBONY);
+      }
       Result = "Cont. L " + String(ReadContourLevel());
-      LRC.drawString(Result, 150, 30, 1);
       break;
     case 6:  //Power level
       Result = "Power " + String(ReadPower()) + "W";
-      LRC.drawString(Result, 150, 30, 1);
       break;
     case 7:  //Frequency
       CurrentFrequencyRX = ReadFrequency(VFORead());
@@ -2321,18 +2387,33 @@ void DisplayLRC(void) {
       } else {
         Result = "F:" + String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7);
       }
-
-      LRC.drawString(Result, 150, 30, 1);
-
+      break;
+    case 8:  //Frequency Main
+      Frequency = ReadFrequency(0);
+      if (Frequency > 9999999) {
+        Result = "M:" + String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8);
+      } else {
+        Result = "M:" + String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7);
+      }
+      break;
+    case 9:  //Frequency Sub
+      Frequency = ReadFrequency(1);
+      if (Frequency > 9999999) {
+        Result = "S:" + String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8);
+      } else {
+        Result = "S:" + String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7);
+      }
       break;
     default:
       break;
   }
+  LRC.drawString(Result, 150, 30, 1);
   LRC.pushSprite(165, 150);
 }
 
 void DisplayULC(void) {
   String Result;
+  long Frequency;
 
   ULC.fillRect(0, 0, ULC.width(), ULC.height(), TFT_EBONY);
   ULC.setFreeFont(&FreeSansBold12pt7b);
@@ -2345,11 +2426,9 @@ void DisplayULC(void) {
   switch (ExtendedParameter1) {
     case 1:
       Result = "SQL " + String(ReadSQL());
-      ULC.drawString(Result, 0, 30, 1);
       break;
     case 2:
       Result = "MEM " + String(ReadMemory());
-      ULC.drawString(Result, 0, 30, 1);
       break;
     case 3:
       if (ReadNotchWidth() == 0) {
@@ -2357,7 +2436,6 @@ void DisplayULC(void) {
       } else {
         Result = "Notch W";
       }
-      ULC.drawString(Result, 0, 30, 1);
       break;
     case 4:  //Contour width
       Result = "Cont. W " + String(ReadContourWidth());
@@ -2366,15 +2444,17 @@ void DisplayULC(void) {
       } else {
         ULC.setTextColor(TFT_WHITE, TFT_EBONY);
       }
-      ULC.drawString(Result, 0, 30, 1);
       break;
     case 5:  //Contour level
+      if (ReadContourLevel() == -15) {
+        ULC.setTextColor(TFT_YELLOW, TFT_EBONY);
+      } else {
+        ULC.setTextColor(TFT_WHITE, TFT_EBONY);
+      }
       Result = "Cont. L " + String(ReadContourLevel());
-      ULC.drawString(Result, 0, 30, 1);
       break;
     case 6:  //Power level
       Result = "Power " + String(ReadPower()) + "W";
-      ULC.drawString(Result, 0, 30, 1);
       break;
     case 7:  //Frequency
       CurrentFrequencyRX = ReadFrequency(VFORead());
@@ -2383,18 +2463,33 @@ void DisplayULC(void) {
       } else {
         Result = "F:" + String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7);
       }
-
-      ULC.drawString(Result, 0, 30, 1);
-
+      break;
+    case 8:  //Frequency Main
+      Frequency = ReadFrequency(0);
+      if (Frequency > 9999999) {
+        Result = "M:" + String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8);
+      } else {
+        Result = "M:" + String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7);
+      }
+      break;
+    case 9:  //Frequency Sub
+      Frequency = ReadFrequency(1);
+      if (Frequency > 9999999) {
+        Result = "S:" + String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8);
+      } else {
+        Result = "S:" + String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7);
+      }
       break;
     default:
       break;
   }
+  ULC.drawString(Result, 0, 30, 1);
   ULC.pushSprite(5, 8);
 }
 
 void DisplayLLC(void) {
   String Result;
+  long Frequency;
 
   LLC.fillRect(0, 0, LLC.width(), LLC.height(), TFT_EBONY);
   LLC.setFreeFont(&FreeSansBold12pt7b);
@@ -2407,11 +2502,9 @@ void DisplayLLC(void) {
   switch (ExtendedParameter2) {
     case 1:
       Result = "SQL " + String(ReadSQL());
-      LLC.drawString(Result, 0, 30, 1);
       break;
     case 2:
       Result = "MEM " + String(ReadMemory());
-      LLC.drawString(Result, 0, 30, 1);
       break;
     case 3:
       if (ReadNotchWidth() == 0) {
@@ -2419,7 +2512,6 @@ void DisplayLLC(void) {
       } else {
         Result = "Notch W";
       }
-      LLC.drawString(Result, 0, 30, 1);
       break;
     case 4:  //Contour width
       Result = "Cont. W " + String(ReadContourWidth());
@@ -2428,15 +2520,17 @@ void DisplayLLC(void) {
       } else {
         LLC.setTextColor(TFT_WHITE, TFT_EBONY);
       }
-      LLC.drawString(Result, 0, 30, 1);
       break;
     case 5:  //Contour level
+      if (ReadContourLevel() == -15) {
+        LLC.setTextColor(TFT_YELLOW, TFT_EBONY);
+      } else {
+        LLC.setTextColor(TFT_WHITE, TFT_EBONY);
+      }
       Result = "Cont. L " + String(ReadContourLevel());
-      LLC.drawString(Result, 0, 30, 1);
       break;
     case 6:  //Power level
       Result = "Power " + String(ReadPower()) + "W";
-      LLC.drawString(Result, 0, 30, 1);
       break;
     case 7:  //Frequency
       CurrentFrequencyRX = ReadFrequency(VFORead());
@@ -2445,12 +2539,26 @@ void DisplayLLC(void) {
       } else {
         Result = "F:" + String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7);
       }
-
-      LLC.drawString(Result, 0, 30, 1);
-
+      break;
+    case 8:  //Frequency Main
+      Frequency = ReadFrequency(0);
+      if (Frequency > 9999999) {
+        Result = "M:" + String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8);
+      } else {
+        Result = "M:" + String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7);
+      }
+      break;
+    case 9:  //Frequency Sub
+      Frequency = ReadFrequency(1);
+      if (Frequency > 9999999) {
+        Result = "S:" + String(Frequency).substring(0, 2) + "." + String(Frequency).substring(2, 5) + "." + String(Frequency).substring(5, 8);
+      } else {
+        Result = "S:" + String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7);
+      }
       break;
     default:
       break;
   }
+  LLC.drawString(Result, 0, 30, 1);
   LLC.pushSprite(5, 150);
 }
