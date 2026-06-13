@@ -27,7 +27,6 @@
 #define SMOOTH_FONT
 
 
-
 #define SPI_FREQUENCY  27000000
 
 #define USE_HSPI_PORT
