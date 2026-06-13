@@ -9,12 +9,13 @@
 //The transceiver's '232 Rate' should be set to '38400bps'
 //The transceiver's 'TUNER SELECT' should be set to 'INT'
 
-
-#include <Adafruit_seesaw.h>  //The library needed for the Adafruit I2C rotary encoders
-#include <TFT_eSPI.h>         //To handle the TFT screen
-#include <mLink.h>            //The library needed for the I2C relays from Hobby Components Ltd
-#include <Preferences.h>      //The library needed to store and retrieve data from the on-board non-volatile memory
+//#include <Arduino.h>          //Typical library for Arduino projects
 //#include <stdarg.h>           //To handle undefined number of arguments in functions
+#include <Preferences.h>      //The library needed to store and retrieve data from the on-board non-volatile memory
+#include <ESP32Time.h>        //To use the internal RTC
+#include <Adafruit_seesaw.h>  //The library needed for the Adafruit I2C rotary encoders
+#include <mLink.h>            //The library needed for the I2C relays from Hobby Components Ltd
+#include <TFT_eSPI.h>         //To handle the TFT screen
 
 #define BAUD_RATE 38400  //Sets the speed of the communication with the transceiver
 #define RXPIN 4          //RX pin for the serial communication with the transceiver
@@ -56,6 +57,8 @@ Adafruit_seesaw RE4;  //Define the object of the 4th rotary encoder
 
 mLink Relay;  //Define the object for the relay
 
+ESP32Time rtc;  // internal RTC wrapper
+
 TFT_eSPI tft = TFT_eSPI();              //Defive the object to handle the TFT display
 TFT_eSprite Upper = TFT_eSprite(&tft);  //Define a sprite for the upper part of the display
 TFT_eSprite Lower = TFT_eSprite(&tft);  //Define a sprite for the lower part of the display
@@ -64,7 +67,7 @@ TFT_eSprite URC = TFT_eSprite(&tft);    //Define a sprite for the upper right pa
 TFT_eSprite LLC = TFT_eSprite(&tft);    //Define a sprite for the lower left part of the display
 TFT_eSprite LRC = TFT_eSprite(&tft);    //Define a sprite for the lower right part of the display
 
-String Build = "250827";
+String Build = "260613";
 
 bool Tuned = false;  // True if in a specific range around the last tuned frequency, false if otherwise
 
@@ -102,22 +105,68 @@ unsigned long ONAirStartTime;  //Marks the time that on air activity started
 int ONAirTime;                 //Actual time on air in seconds;
 int MaxAirTime;                //Maximum air time in second. When we reach 80% of the end of time the timer on the display turns red
 
-int SecondRelayActivationTime = 0;  //The second relay activation in seconds relative to the tuner activation. Negative values shows that the second relay activate s before the tuner activation. Positive value means after the tuner activation. A value of zero means activates with the tuner activation.
+int SecondRelayActivationTime = 0;  //The second relay activation in seconds relative to the tuner activation. Negative values shows that the second relay activates before the tuner activation. Positive value means after the tuner activation. A value of zero means activates with the tuner activation.
 int SecondRelayDelay = 0;           //The time in seconds that the second relay stays activated after it gets activated. Only possitive values f course.
 unsigned long SecondRelayActivationMillis = 0;
 unsigned long SecondRelayDeactivationMillis = 0;
 bool RLY1 = false;  //To follow the status of RLY1
 
-unsigned long MeasureTime;
-
 int PPO;  //Peak Power Out
 
 volatile unsigned long start;  //This value is used when we are in a menu, to mark the the start of inactivity time before we auto-exit the menu
 
-int ExtendedParameter1;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency, 8- Frequency Main, 9- Frequency Sub
-int ExtendedParameter2;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency, 8- Frequency Main, 9- Frequency Sub
-int ExtendedParameter3;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency, 8- Frequency Main, 9- Frequency Sub
-int ExtendedParameter4;  // Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency, 8- Frequency Main, 9- Frequency Sub
+// Shows the parameter that can be modified with the specific encoder: 1 - Squelch, 2 - Memory channel, 3 - Notch filter width, 4 - Contour Width, 5 - Contour Level, 6- Power Level, 7- Frequency, 8- Frequency Main, 9- Frequency Sub
+int ExtendedParameter1;
+int ExtendedParameter2;
+int ExtendedParameter3;
+int ExtendedParameter4;
+
+//Conflicting Frequencies
+//The second parameter is the modulation type: 1=LSB, 2=USB, 8=Data-L, C=Data-U, etc
+long ConflictFr[33][2] = {
+  { 7195000, 1 },
+  { 7197000, 1 },
+  { 14280000, 2 },
+  { 1840000, 2 },
+  { 3573000, 2 },
+  { 5357000, 2 },
+  { 7074000, 2 },
+  { 10136000, 2 },
+  { 14074000, 2 },
+  { 18100000, 2 },
+  { 21074000, 2 },
+  { 24915000, 2 },
+  { 28074000, 2 },
+  { 50313000, 2 },
+  { 14230000, 2 },
+  { 3690000, 1 },
+  { 7090000, 1 },
+  { 14285000, 2 },
+  { 18130000, 2 },
+  { 21285000, 2 },
+  { 24950000, 2 },
+  { 28360000, 2 },
+  { 1995000, 2 },
+  { 3595000, 2 },
+  { 5355000, 2 },
+  { 7105000, 2 },
+  { 10133000, 2 },
+  { 14105000, 2 },
+  { 18107000, 2 },
+  { 21105000, 2 },
+  { 24927000, 2 },
+  { 28105000, 2 },
+  { 50330000, 2 }
+
+};
+
+String ConflictText[33] = { "Greek Net", "Greek Net", "Greek Net", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "SSTV", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC" };
+
+void IRAM_ATTR Interupt1() {  // The IRAM_ATTR parameter is used to store the function in the RAM and not int the flash memory, for faster execution. Also due to a compiler limitation, the functions needs to be declared before setup() function
+  if (digitalRead(TXGND) == 0) {
+    start = 0;  // Exit from possible menus by setting to 0 all user input wait time. Give priority to handle the transmition.
+  }
+}
 
 void setup() {
   //seting the pin mode of the pins that we use
@@ -147,8 +196,8 @@ void setup() {
   RE2.begin(SEESAW_ADDR2);                             //Initiate the 2nd rotary encoder
   RE3.begin(SEESAW_ADDR3);                             //Initiate the 3rd rotary encoder
   RE4.begin(SEESAW_ADDR4);                             //Initiate the 4th rotary encoder
-  tft.init();                                          //Initiate the tft display
 
+  tft.init();                    //Initiate the tft display
   Upper.createSprite(320, 112);  //Create the sprite for the upper part of the display
   Lower.createSprite(280, 29);   //Create the sprite for the lower part of the display
   ULC.createSprite(150, 30);     //Create the sprite for the upper left corner of the display
@@ -160,6 +209,7 @@ void setup() {
   tft.setTextWrap(false);
   tft.fillScreen(TFT_BLACK);
 
+  //Splash screen
   tft.fillRect(0, 16, 320, 194, TFT_YELLOW);
   tft.setFreeFont(&FreeSansBold18pt7b);
   TFT_FOREGROUND = TFT_BLACK;
@@ -176,12 +226,20 @@ void setup() {
   tft.setFreeFont(&FreeSansBold12pt7b);
   PrintTextCentered(0, 320, 178, "---by SV1RQJ/F4VTR---");
   PrintTextCentered(0, 320, 205, "Build " + Build);
-  delay(2000);
+  delay(1000);
   tft.fillRect(0, 0, 320, 240, TFT_BLACK);
   tft.fillRect(0, 8, 320, 172, TFT_EBONY);
 
   tft.setTextColor(TFT_YELLOW);
   TFT_BACKGROUND = TFT_EBONY;
+
+  //Set the local RTC from the radio
+  String Result, Result2;
+  Result = ReadTime();
+  Result2 = ReadDate();
+  rtc.setTime(30, Result.substring(2, 4).toInt(), Result.substring(0, 2).toInt(), Result2.substring(6, 8).toInt(), Result2.substring(4, 6).toInt(), Result2.substring(0, 4).toInt());
+  //Serial.println(rtc.getTime());
+
 
   attachInterrupt(digitalPinToInterrupt(TXGND), Interupt1, CHANGE);  //Setup the interrupt routine to call and the condition to call it
 
@@ -193,6 +251,8 @@ void setup() {
     1,                      /* priority of the task */
     &SecondCoreTask,        /* Task handle to keep track of created task */
     0);                     /* pin task to core 0 */
+
+  vTaskSuspend(SecondCoreTask);  // Suspend the second core task
 }
 
 void loop() {
@@ -230,9 +290,6 @@ void loop() {
     while (!RE4.digitalRead(SS_SWITCH)) {}
     MenuHandle_4thEncoder();
   }
-
-  // This section is to be removed
-  //Serial.print("Test");
 
   if (Message != 4) {  //In case we have a Message 4 (No Communication) don't display the 4 corners
     DisplayURC();
@@ -272,7 +329,18 @@ void loop() {
     }
 
     //If the transmniter transmits in a non-tuned frequency (or the tune button is pressed) while the transmit is in the allowed bands...
-    if (((digitalRead(TXGND) == 0 && !Tuned) || ButtonShortPress) && ((CurrentFrequencyTX >= 1800000 && CurrentFrequencyTX < 2000000) || (CurrentFrequencyTX >= 3500000 && CurrentFrequencyTX < 3800000) || (CurrentFrequencyTX >= 5351500 && CurrentFrequencyTX < 5366500) || (CurrentFrequencyTX >= 7000000 && CurrentFrequencyTX < 7200000) || (CurrentFrequencyTX >= 10100000 && CurrentFrequencyTX < 10150000) || (CurrentFrequencyTX >= 14000000 && CurrentFrequencyTX < 14350000) || (CurrentFrequencyTX >= 18068000 && CurrentFrequencyTX < 18168000) || (CurrentFrequencyTX >= 21000000 && CurrentFrequencyTX < 21450000) || (CurrentFrequencyTX >= 24890000 && CurrentFrequencyTX < 24990000) || (CurrentFrequencyTX >= 28000000 && CurrentFrequencyTX < 29700000) || (CurrentFrequencyTX >= 50000000 && CurrentFrequencyTX < 52000000))) {
+    if (((digitalRead(TXGND) == 0 && !Tuned) || ButtonShortPress)
+        && ((CurrentFrequencyTX >= 1800000 && CurrentFrequencyTX < 2000000)
+            || (CurrentFrequencyTX >= 3500000 && CurrentFrequencyTX < 3800000)
+            || (CurrentFrequencyTX >= 5351500 && CurrentFrequencyTX < 5366500)
+            || (CurrentFrequencyTX >= 7000000 && CurrentFrequencyTX < 7200000)
+            || (CurrentFrequencyTX >= 10100000 && CurrentFrequencyTX < 10150000)
+            || (CurrentFrequencyTX >= 14000000 && CurrentFrequencyTX < 14350000)
+            || (CurrentFrequencyTX >= 18068000 && CurrentFrequencyTX < 18168000)
+            || (CurrentFrequencyTX >= 21000000 && CurrentFrequencyTX < 21450000)
+            || (CurrentFrequencyTX >= 24890000 && CurrentFrequencyTX < 24990000)
+            || (CurrentFrequencyTX >= 28000000 && CurrentFrequencyTX < 29700000)
+            || (CurrentFrequencyTX >= 50000000 && CurrentFrequencyTX < 52000000))) {
       Serial2.print("TX0;");  //Stop transmition due to CAT
       delay(CommandDelay);
       Serial2.print("MX0;");  //Stop transmition due to MOX
@@ -296,6 +364,8 @@ void loop() {
       Serial2.print("LK7;");
       delay(CommandDelay);
 
+      vTaskResume(SecondCoreTask);  // Resume the second core task
+
       if (SecondRelayActivationTime >= 0) {
         SecondRelayActivationMillis = millis() + SecondRelayActivationTime * 1000;
         SecondRelayDeactivationMillis = millis() + SecondRelayActivationTime * 1000 + SecondRelayDelay * 1000;
@@ -308,7 +378,6 @@ void loop() {
         }
         ActivateExternalTuner();  //Start tune process for external tuner
       }
-
 
       //Restore dial lock status
       Serial2.print("LK" + LockStatus + ";");
@@ -457,9 +526,8 @@ void ActivateExternalTuner() {  //This function activates external tuner
   SetMode(MAINSUBTX, "5");                     //Set AM Mode
   SetFrequency(MAINSUBTX, PreviousFrequency);  //Correct the frequency
   Serial2.print("PC010;");                     //Set power at 10 watts
-  Serial.println("Power:" + String(millis() - MeasureTime));
-  PreviousMic = ReadMic();  //Read Mic gain after changing to AM
-  SetMic(0);                //Mute Mic
+  PreviousMic = ReadMic();                     //Read Mic gain after changing to AM
+  SetMic(0);                                   //Mute Mic
 
   TFT_FOREGROUND = TFT_YELLOW;
   TFT_BACKGROUND = TFT_EBONY;
@@ -501,26 +569,26 @@ void ActivateExternalTuner() {  //This function activates external tuner
     tft.setFreeFont(&FreeSansBold12pt7b);
     if (SWR <= 13) {
       TFT_FOREGROUND = TFT_GREEN;
-      PrintTextCentered(0, 320, 140, "SWR ~1.1");
+      PrintTextCentered(0, 320, 145, "SWR ~1.1");
     } else if (SWR <= 26) {
       TFT_FOREGROUND = TFT_GREEN;
-      PrintTextCentered(0, 320, 140, "SWR ~1.2");
+      PrintTextCentered(0, 320, 145, "SWR ~1.2");
     } else if (SWR <= 39) {
       TFT_FOREGROUND = TFT_GREEN;
-      PrintTextCentered(0, 320, 140, "SWR ~1.5");
+      PrintTextCentered(0, 320, 145, "SWR ~1.5");
     } else if (SWR <= 80) {
       TFT_FOREGROUND = TFT_YELLOW;
-      PrintTextCentered(0, 320, 140, "SWR < 2");
+      PrintTextCentered(0, 320, 145, "SWR < 2");
     }
 
     tft.setFreeFont(&FreeSansBold24pt7b);
-    PrintTextCentered(0, 320, 113, "TUNED");
+    PrintTextCentered(0, 320, 118, "TUNED");
 
     LastTunedFrequency = CurrentFrequencyTX;  //LastTunedFrequency is used by external tuner.
     LastFailedFrequency = 0;
     Message = 0;
-    InfoDelay = millis() + 2000;
   }
+  InfoDelay = millis() + 2000;
 }
 
 int ReadActiveVFO() {
@@ -604,8 +672,6 @@ int ReadPowerOut() {
     Result = Result + a;
     if (a == ';') {
       Result = Result.substring(3, Result.length() - 4);
-      //Serial.print("Meter = ");
-      //Serial.println(Result);
     }
   }
   return Result.toInt();
@@ -853,6 +919,48 @@ void SetMemory(int Memory) {
   Serial2.print("MC" + MemoryText + ";");
 }
 
+String ReadTime() {  //Reading the time from the tranceiver
+
+  char a;
+  String Result;
+
+  FlushSerialInput();
+
+  Serial2.print("DT1;");
+  delay(CommandDelay);
+
+  Result = "";
+  while (Serial2.available() > 0) {
+    a = Serial2.read();
+    Result = Result + a;
+    if (a == ';') {
+      Result = Result.substring(3, Result.length() - 1);
+    }
+  }
+  return Result;
+}
+
+String ReadDate() {  //Reading the date from the tranceiver
+
+  char a;
+  String Result;
+
+  FlushSerialInput();
+
+  Serial2.print("DT0;");
+  delay(CommandDelay);
+
+  Result = "";
+  while (Serial2.available() > 0) {
+    a = Serial2.read();
+    Result = Result + a;
+    if (a == ';') {
+      Result = Result.substring(3, Result.length() - 1);
+    }
+  }
+  return Result;
+}
+
 void CheckTuning() {
 
   int i, SWRReadings[10] = { 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 };
@@ -891,8 +999,9 @@ void InfoScreen() {                  // Displays messages on the display
   if (!Tuned && Message != 1) {
     UpperClearDisplay();
     Upper.setFreeFont(&FreeSansBold24pt7b);
-    UpperPrintTextCentered(0, 320, 60, "NOT");
-    UpperPrintTextCentered(0, 320, 105, "TUNED");
+    //UpperPrintTextCentered(0, 320, 60, "NOT");
+    //UpperPrintTextCentered(0, 320, 105, "TUNED");
+    UpperPrintTextCentered(0, 320, 80, "NOT TUNED");
     Upper.pushSprite(0, 38);
     Message = 1;
   }
@@ -905,10 +1014,17 @@ void InfoScreen() {                  // Displays messages on the display
     } else {
       TFT_FOREGROUND = TFT_YELLOW;
     }
-    UpperPrintTextCentered(0, 320, 75, "TUNED");
+    UpperPrintTextCentered(0, 320, 80, "TUNED");
     Upper.pushSprite(0, 38);
     Message = 2;
   }
+
+  TFT_FOREGROUND = TFT_YELLOW;
+  Upper.setFreeFont(&FreeSansBold12pt7b);
+  UpperPrintTextCentered(0, 320, 25, rtc.getTime("%d/%B %H:%Mz"));
+  Upper.pushSprite(0, 38);
+
+  FrCheck();
 
   PrintStatus();
 }
@@ -1652,18 +1768,21 @@ void ReadEncoder() {  //Unified ReadEncoder function
             CurrentFrequencyRX = CurrentFrequencyRX / Steps * Steps;
             CurrentFrequencyRX = CurrentFrequencyRX + Steps * (encoder_position - new_position);
             SetFrequency(VFORead(), CurrentFrequencyRX);
+            FrCheck();
             break;
           case 8:
             Frequency = ReadFrequency(0);
             Frequency = Frequency / Steps * Steps;
             Frequency = Frequency + Steps * (encoder_position - new_position);
             SetFrequency(0, Frequency);
+            FrCheck();
             break;
           case 9:
             Frequency = ReadFrequency(1);
             Frequency = Frequency / Steps * Steps;
             Frequency = Frequency + Steps * (encoder_position - new_position);
             SetFrequency(1, Frequency);
+            FrCheck();
             break;
           default:
             break;
@@ -1706,18 +1825,21 @@ void ReadEncoder() {  //Unified ReadEncoder function
             CurrentFrequencyRX = (CurrentFrequencyRX + (Steps - 1)) / Steps * Steps;
             CurrentFrequencyRX = CurrentFrequencyRX - Steps * (new_position - encoder_position);
             SetFrequency(VFORead(), CurrentFrequencyRX);
+            FrCheck();
             break;
           case 8:
             Frequency = ReadFrequency(0);
             Frequency = (Frequency + (Steps - 1)) / Steps * Steps;
             Frequency = Frequency - Steps * (new_position - encoder_position);
             SetFrequency(0, Frequency);
+            FrCheck();
             break;
           case 9:
             Frequency = ReadFrequency(1);
             Frequency = (Frequency + (Steps - 1)) / Steps * Steps;
             Frequency = Frequency - Steps * (new_position - encoder_position);
             SetFrequency(1, Frequency);
+            FrCheck();
             break;
           default:
             break;
@@ -2042,14 +2164,6 @@ int NormalizePO(int x) {
   return Result;
 }
 
-void Interupt1() {
-  //Serial.println("Ïnt:" + String(millis()));
-  MeasureTime = millis();
-  if (digitalRead(TXGND) == 0) {
-    start = 0;  // Exit from possible menus by setting to 0 all user input wait time. Give priority to handle the transmition.
-  }
-}
-
 void SecondCoreTaskCode(void* pvParameters) {
   do {
     if (millis() > SecondRelayActivationMillis && millis() < SecondRelayDeactivationMillis && RLY1 == false) {
@@ -2060,7 +2174,11 @@ void SecondCoreTaskCode(void* pvParameters) {
       Relay.SET_RLY1(I2C_REL_ADD, LOW);
       RLY1 = false;
     }
+    if (millis() > SecondRelayDeactivationMillis) {
+      vTaskSuspend(SecondCoreTask);  // Suspend the second core task
+    }
     delay(CommandDelay);
+    //Serial.println("Second core running");
   } while (true);
 }
 
@@ -2093,7 +2211,12 @@ int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = t
 
   TFT_FOREGROUND = TFT_YELLOW;
   TFT_BACKGROUND = TFT_EBONY;
+
+  Serial.println("Clear Upper Display Before");
+
   UpperClearDisplay();
+
+  Serial.println("Clear Upper Display After");
 
   start = millis();
 
@@ -2121,6 +2244,7 @@ int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = t
       TFT_BACKGROUND = TFT_EBONY;
       //Upper.drawRect(100, 117, 320 - 2 * 100, 1, TFT_YELLOW);
       Upper.pushSprite(0, 8);
+      Serial.println("Menu draw");
       Redraw = false;
     }
 
@@ -2561,4 +2685,56 @@ void DisplayLLC(void) {
   }
   LLC.drawString(Result, 0, 30, 1);
   LLC.pushSprite(5, 150);
+}
+
+void FrCheck(void) {  //Check if the current TX Frequency conflicts with the band plan
+  String Conf = "Test";
+  long CurrentFrequencyTXStart;
+  long CurrentFrequencyTXEnd;
+  long ConflictFrStart;
+  long ConflictFrEnd;
+  int i;
+  bool Found;
+
+  TFT_FOREGROUND = TFT_YELLOW;
+
+  String Mode = ReadMode(MAINSUBTX);
+
+  MAINSUBTX = ReadTX();
+  CurrentFrequencyTX = ReadFrequency(MAINSUBTX);
+
+  if (Mode == "1" || Mode == "8") {
+    CurrentFrequencyTXStart = CurrentFrequencyTX - 3000;
+    CurrentFrequencyTXEnd = CurrentFrequencyTX;
+  } else if (Mode == "2" || Mode == "C") {
+    CurrentFrequencyTXStart = CurrentFrequencyTX;
+    CurrentFrequencyTXEnd = CurrentFrequencyTX + 3000;
+  }
+
+
+  Found = false;
+  for (i = 0; i < 33; i++) {
+
+    if (ConflictFr[i][1] == 1) {
+      ConflictFrStart = ConflictFr[i][0] - 2999;
+      ConflictFrEnd = ConflictFr[i][0];
+    } else if (ConflictFr[i][1] == 2) {
+      ConflictFrStart = ConflictFr[i][0];
+      ConflictFrEnd = ConflictFr[i][0] + 2999;
+    }
+
+    if ((CurrentFrequencyTXStart >= ConflictFrStart && CurrentFrequencyTXStart <= ConflictFrEnd) || (CurrentFrequencyTXEnd <= ConflictFrEnd && CurrentFrequencyTXEnd >= ConflictFrStart)) {
+      Upper.setFreeFont(&FreeSansBold12pt7b);
+      UpperPrintTextCentered(0, 320, 110, "Used by : " + ConflictText[i]);
+      //Serial.print("Found ");
+      //Serial.println(i);
+      i == 33;
+      Found = true;
+    };
+  }
+  if (Found == false) {
+    Upper.setFreeFont(&FreeSansBold12pt7b);
+    UpperPrintTextCentered(0, 320, 110, "                   ");
+  }
+  Upper.pushSprite(0, 38);
 }
