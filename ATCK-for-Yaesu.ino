@@ -9,8 +9,6 @@
 //The transceiver's '232 Rate' should be set to '38400bps'
 //The transceiver's 'TUNER SELECT' should be set to 'INT'
 
-//#include <Arduino.h>          //Typical library for Arduino projects
-//#include <stdarg.h>           //To handle undefined number of arguments in functions
 #include <Preferences.h>      //The library needed to store and retrieve data from the on-board non-volatile memory
 #include <ESP32Time.h>        //To use the internal RTC
 #include <Adafruit_seesaw.h>  //The library needed for the Adafruit I2C rotary encoders
@@ -23,7 +21,7 @@
 #define Button 1         //Tuner button.
 #define TXGND 7          //Connected to the TX-GND jack of the tranceiver. It's low when the transceiver transmits
 
-#define CommandDelay 12  //Number of milliseconds to wait after we send a coomand to the transceiver
+#define CommandDelay 8  //Number of milliseconds to wait after we send a coomand to the transceiver. Best option found is 12 ms
 
 #define SS_SWITCH 24         //The pin that controls the rotary encoder on the I2C board
 #define SEESAW_ADDR1 0x36    //The I2C address of the first encoder - Default address
@@ -67,7 +65,7 @@ TFT_eSprite URC = TFT_eSprite(&tft);    //Define a sprite for the upper right pa
 TFT_eSprite LLC = TFT_eSprite(&tft);    //Define a sprite for the lower left part of the display
 TFT_eSprite LRC = TFT_eSprite(&tft);    //Define a sprite for the lower right part of the display
 
-String Build = "260613";
+String Build = "260805";
 
 bool Tuned = false;  // True if in a specific range around the last tuned frequency, false if otherwise
 
@@ -162,6 +160,11 @@ long ConflictFr[33][2] = {
 
 String ConflictText[33] = { "Greek Net", "Greek Net", "Greek Net", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "SSTV", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC" };
 
+bool ButtonShortPress = false;  // Checks in the tune button has been pressed for a long time (>1 sec?)
+bool ButtonLongPress = false;
+unsigned long ButtonPressTime;  //The point in time where the button is pressed
+
+
 void IRAM_ATTR Interupt1() {  // The IRAM_ATTR parameter is used to store the function in the RAM and not int the flash memory, for faster execution. Also due to a compiler limitation, the functions needs to be declared before setup() function
   if (digitalRead(TXGND) == 0) {
     start = 0;  // Exit from possible menus by setting to 0 all user input wait time. Give priority to handle the transmition.
@@ -238,8 +241,6 @@ void setup() {
   Result = ReadTime();
   Result2 = ReadDate();
   rtc.setTime(30, Result.substring(2, 4).toInt(), Result.substring(0, 2).toInt(), Result2.substring(6, 8).toInt(), Result2.substring(4, 6).toInt(), Result2.substring(0, 4).toInt());
-  //Serial.println(rtc.getTime());
-
 
   attachInterrupt(digitalPinToInterrupt(TXGND), Interupt1, CHANGE);  //Setup the interrupt routine to call and the condition to call it
 
@@ -251,18 +252,14 @@ void setup() {
     1,                      /* priority of the task */
     &SecondCoreTask,        /* Task handle to keep track of created task */
     0);                     /* pin task to core 0 */
-
-  vTaskSuspend(SecondCoreTask);  // Suspend the second core task
 }
 
 void loop() {
-  char a;                         //Generic character string
-  String Result;                  //Generic results storage
-  String LockStatus;              //Lock status
-  bool ButtonShortPress = false;  // Checks in the tune button has been pressed for a long time (>1 sec?)
-  unsigned long ButtonPressTime;  //The point in time where the button is pressed
-  String TimeText;                //To hold the on air time string
-  int MPO;                        //Max Power Out
+  char a;                  //Generic character string
+  String Result, Result2;  //Generic results storage
+  String LockStatus;       //Lock status
+  String TimeText;         //To hold the on air time string
+  int MPO;                 //Max Power Out
 
   //If an encoder has moved...
   if (encoder_position1 != RotatorDirection * RE1.getEncoderPosition() || encoder_position2 != RotatorDirection * RE2.getEncoderPosition() || encoder_position3 != RotatorDirection * RE3.getEncoderPosition() || encoder_position4 != RotatorDirection * RE4.getEncoderPosition()) {
@@ -310,22 +307,10 @@ void loop() {
     CurrentFrequencyTX = ReadFrequency(MAINSUBTX);     //Check the current frequency of the VFO that has the transmision
     Tuned = IsInTunedFrequencies(CurrentFrequencyTX);  //Check if we are still in tuned range
 
-    //Here we see if the Tune button is shortpressed and need to tune, or longpressed. I don't have an action assigned to short press
-    if (digitalRead(Button) == 0) {  //if the tune button is pressed...
-      ButtonPressTime = millis();    //Mark the time that the button was pressed...
-
-      while (ButtonPressTime + 1000 > millis()) {  //...and we wait for 1000ms...
-        if (digitalRead(Button) != 0) {
-          delay(CommandDelay);  // Buffer to settle the physical button move
-          break;
-        }
-      }
-      if (digitalRead(Button) == 0) {  // ...and if the button is still pressed we set the ButtonShortPress to false and we open the system menu
-        ButtonShortPress = false;
-        SystemMenu();
-      } else {  // ...otherwise we set the ButtonShortPress to true and proceed to tuning.
-        ButtonShortPress = true;
-      }
+    if (ButtonLongPress) {
+      SystemMenu();
+      ButtonShortPress = false;
+      ButtonLongPress = false;
     }
 
     //If the transmniter transmits in a non-tuned frequency (or the tune button is pressed) while the transmit is in the allowed bands...
@@ -351,6 +336,7 @@ void loop() {
       delay(CommandDelay);
 
       //I lock the dial in order to avoid accidental change of frequency while tuning
+      FlushSerialInput();
       Serial2.print("LK;");
       delay(CommandDelay);
       Result = "";
@@ -363,8 +349,6 @@ void loop() {
       }
       Serial2.print("LK7;");
       delay(CommandDelay);
-
-      vTaskResume(SecondCoreTask);  // Resume the second core task
 
       if (SecondRelayActivationTime >= 0) {
         SecondRelayActivationMillis = millis() + SecondRelayActivationTime * 1000;
@@ -389,7 +373,9 @@ void loop() {
         delay(CommandDelay);
       }
 
-      Relay.SET_RLY0(I2C_REL_ADD, LOW);             //Re-connect the PTT button
+      Relay.SET_RLY0(I2C_REL_ADD, LOW);  //Re-connect the PTT button
+      ButtonShortPress = false;          //Reset the button flag
+
     } else if (digitalRead(TXGND) == 0 && Tuned) {  //If we transmit and is tuned
 
       if (millis() / 1000 > ONAirStartTime / 1000 + ONAirTime + 2) {  //The 2 represends 2 seconds that we allow to depress PTT but still keep counting
@@ -456,30 +442,35 @@ void loop() {
       Message = 5;
     }
   } else {
-    if (Message != 4) {
-      TFT_BACKGROUND = TFT_EBONY;
-      TFT_FOREGROUND = TFT_YELLOW;
-      tft.setFreeFont(&FreeSansBold18pt7b);
-      tft.fillRect(0, 8, 320, 172, TFT_EBONY);
-      tft.drawRect(0, 8, 320, 172, TFT_RED);
-      tft.drawRect(1, 9, 318, 170, TFT_RED);
-      do {
-        PrintTextCentered(2, 318, 80, "Communication");
-        PrintTextCentered(2, 318, 115, "error !");
-        delay(2000);
-        if (ReadPower() != 0) break;
-        tft.fillRect(2, 10, 317, 168, TFT_EBONY);
-        PrintTextCentered(2, 317, 60, "Pls check your");
-        PrintTextCentered(2, 317, 96, "serial cable and");
-        PrintTextCentered(2, 317, 132, "set the 232C rate");
-        PrintTextCentered(2, 317, 168, "to 38400bps");
-        delay(2000);
-        tft.fillRect(2, 10, 317, 168, TFT_EBONY);
-      } while (ReadPower() == 0);
-      tft.fillRect(0, 8, 320, 172, TFT_EBONY);
-      //Upper.pushSprite(0, 38);
-      Message = 4;
+    TFT_BACKGROUND = TFT_EBONY;
+    TFT_FOREGROUND = TFT_YELLOW;
+    tft.setFreeFont(&FreeSansBold18pt7b);
+    tft.drawRect(0, 8, 320, 172, TFT_RED);
+    tft.drawRect(1, 9, 318, 170, TFT_RED);
+    do {
+      tft.fillRect(2, 10, 317, 168, TFT_EBONY);
+      PrintTextCentered(2, 318, 80, "Communication");
+      PrintTextCentered(2, 318, 115, "error !");
+      delay(2000);
+      if (ReadPower() != 0) break;
+      tft.fillRect(2, 10, 317, 168, TFT_EBONY);
+      PrintTextCentered(2, 317, 60, "Pls check your");
+      PrintTextCentered(2, 317, 96, "serial cable and");
+      PrintTextCentered(2, 317, 132, "set the 232C rate");
+      PrintTextCentered(2, 317, 168, "to 38400bps");
+      delay(2000);
+    } while (ReadPower() == 0);
+
+    while (ReadTime() == "000000") {  //Wait until can read the tranceiver's time
+      delay(CommandDelay);
     }
+    tft.fillRect(0, 8, 320, 172, TFT_EBONY);
+
+    //Refresh the local RTC from the radio
+    Result = ReadTime();
+    Result2 = ReadDate();
+    rtc.setTime(30, Result.substring(2, 4).toInt(), Result.substring(0, 2).toInt(), Result2.substring(6, 8).toInt(), Result2.substring(4, 6).toInt(), Result2.substring(0, 4).toInt());
+
     InfoScreen();
   }
 }
@@ -596,7 +587,6 @@ int ReadActiveVFO() {
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("VS;");
   delay(CommandDelay);
 
@@ -616,7 +606,6 @@ long ReadFrequency(int MainSub) {
   String Result;
 
   FlushSerialInput();
-
   if (MainSub == 0) {
     Serial2.print("FA;");
   } else if (MainSub == 1) {
@@ -641,7 +630,6 @@ int ReadPower() {
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("PC;");
   delay(CommandDelay);
 
@@ -662,7 +650,6 @@ int ReadPowerOut() {
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("RM5;");
   delay(CommandDelay);
 
@@ -695,7 +682,6 @@ int ReadMic() {
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("MG;");
   delay(CommandDelay);
 
@@ -711,7 +697,6 @@ int ReadMic() {
 }
 
 void SetMic(int Mic) {
-
   unsigned int i;
   String MicText;
 
@@ -728,7 +713,6 @@ String ReadMode(int MainSub) {
   String Result;
 
   FlushSerialInput();
-
   if (MainSub == 0) {
     Serial2.print("MD0;");
   } else if (MainSub == 1) {
@@ -782,12 +766,10 @@ void SetFilter(int MainSub, int filter) {  //Set the roofing filter
 }
 
 int ReadSWR() {
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("RM6;");
   delay(CommandDelay);
 
@@ -804,12 +786,10 @@ int ReadSWR() {
 }
 
 int ReadSQL() {  //Read SQL level on active VFO
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   switch (ReadActiveVFO()) {
     case 0:
       Serial2.print("SQ0;");
@@ -834,7 +814,6 @@ int ReadSQL() {  //Read SQL level on active VFO
 }
 
 void SetSQL(int SQL) {  //Set SQL level on active VFO
-
   unsigned int i;
   String SQLText;
 
@@ -856,12 +835,10 @@ void SetSQL(int SQL) {  //Set SQL level on active VFO
 }
 
 int ReadNotchWidth() {
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("EX030205;");
   delay(CommandDelay);
 
@@ -877,23 +854,19 @@ int ReadNotchWidth() {
 }
 
 void SetNotchWidth(int NotchWidth) {  //Accepts only 0 (Narrow) and 1 (Wide).Anything else is not processed
-
   if (NotchWidth == 0) {
     Serial2.print("EX0302050;");
   }
-
   if (NotchWidth == 1) {
     Serial2.print("EX0302051;");
   }
 }
 
 int ReadMemory() {
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("MC;");
   delay(CommandDelay);
 
@@ -920,12 +893,10 @@ void SetMemory(int Memory) {
 }
 
 String ReadTime() {  //Reading the time from the tranceiver
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("DT1;");
   delay(CommandDelay);
 
@@ -941,12 +912,10 @@ String ReadTime() {  //Reading the time from the tranceiver
 }
 
 String ReadDate() {  //Reading the date from the tranceiver
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("DT0;");
   delay(CommandDelay);
 
@@ -1149,10 +1118,9 @@ void SystemMenu() {
 
 void SubMenu(String smenu) {
   start = millis();
-  int HighlightedMenu = 1;  //To be removed
   bool Redraw = true;
   int i, j;
-  String GenericText = "";  //To be removed
+  //String GenericText = "";  //To be removed
   int timeout = 3000;
   int TempMaxAirTime = MaxAirTime;
   int TempSecondRelayActivationTime = SecondRelayActivationTime;
@@ -1229,8 +1197,6 @@ void SubMenu(String smenu) {
             TempMaxAirTime--;
             if (TempMaxAirTime < 1) TempMaxAirTime = 1;
           }
-          //SubMenus[14][1] = String(TempMaxAirTime) + " Sec";
-          //SubMenus[14][2] = String(TempMaxAirTime);
         } else if (smenu == "5") {  //if we are in the 5th menu...
           if (FirstParameterSet == false) {
             if (new_position1 < encoder_position1) {
@@ -1264,8 +1230,6 @@ void SubMenu(String smenu) {
 
         //Now we take action
         if (smenu == "4") {
-          //GenericText = SubMenus[i][2];
-          //MaxAirTime = GenericText.toInt();
           MaxAirTime = TempMaxAirTime;
         } else if (smenu == "5") {
           if (FirstParameterSet == false) {
@@ -1370,12 +1334,10 @@ void SubMenu(String smenu) {
 }
 
 int ReadAntenna(int MainSub) {
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   if (MainSub == 0) {
     Serial2.print("AN0;");
   } else if (MainSub == 1) {
@@ -1396,15 +1358,12 @@ int ReadAntenna(int MainSub) {
 }
 
 int ReadVOXStatus(void) {  //Return 1 if active, 0 if not
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("VX;");
   delay(CommandDelay);
-
 
   Result = "";
   while (Serial2.available() > 0) {
@@ -1418,12 +1377,10 @@ int ReadVOXStatus(void) {  //Return 1 if active, 0 if not
 }
 
 int ReadTX() {  //Read where is the TX (main or sub)
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("FT;");
   delay(CommandDelay);
 
@@ -1439,12 +1396,10 @@ int ReadTX() {  //Read where is the TX (main or sub)
 }
 
 int VFORead() {  //Read which VFO is active
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("VS;");
   delay(CommandDelay);
 
@@ -1460,12 +1415,10 @@ int VFORead() {  //Read which VFO is active
 }
 
 int ReadCompressor() {
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("PR0;");
   delay(CommandDelay);
 
@@ -1490,12 +1443,10 @@ void SetCompressor(int x) {
 }
 
 int ReadKeyer() {
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("KR;");
   delay(CommandDelay);
 
@@ -1511,12 +1462,10 @@ int ReadKeyer() {
 }
 
 int ReadEQ() {
-
   char a;
   String Result;
 
   FlushSerialInput();
-
   Serial2.print("PR1;");
   delay(CommandDelay);
 
@@ -1768,21 +1717,18 @@ void ReadEncoder() {  //Unified ReadEncoder function
             CurrentFrequencyRX = CurrentFrequencyRX / Steps * Steps;
             CurrentFrequencyRX = CurrentFrequencyRX + Steps * (encoder_position - new_position);
             SetFrequency(VFORead(), CurrentFrequencyRX);
-            FrCheck();
             break;
           case 8:
             Frequency = ReadFrequency(0);
             Frequency = Frequency / Steps * Steps;
             Frequency = Frequency + Steps * (encoder_position - new_position);
             SetFrequency(0, Frequency);
-            FrCheck();
             break;
           case 9:
             Frequency = ReadFrequency(1);
             Frequency = Frequency / Steps * Steps;
             Frequency = Frequency + Steps * (encoder_position - new_position);
             SetFrequency(1, Frequency);
-            FrCheck();
             break;
           default:
             break;
@@ -1825,21 +1771,18 @@ void ReadEncoder() {  //Unified ReadEncoder function
             CurrentFrequencyRX = (CurrentFrequencyRX + (Steps - 1)) / Steps * Steps;
             CurrentFrequencyRX = CurrentFrequencyRX - Steps * (new_position - encoder_position);
             SetFrequency(VFORead(), CurrentFrequencyRX);
-            FrCheck();
             break;
           case 8:
             Frequency = ReadFrequency(0);
             Frequency = (Frequency + (Steps - 1)) / Steps * Steps;
             Frequency = Frequency - Steps * (new_position - encoder_position);
             SetFrequency(0, Frequency);
-            FrCheck();
             break;
           case 9:
             Frequency = ReadFrequency(1);
             Frequency = (Frequency + (Steps - 1)) / Steps * Steps;
             Frequency = Frequency - Steps * (new_position - encoder_position);
             SetFrequency(1, Frequency);
-            FrCheck();
             break;
           default:
             break;
@@ -1912,6 +1855,7 @@ void ReadEncoder() {  //Unified ReadEncoder function
           } else {
             UpperPrintTextCentered(0, 320, 75, String(CurrentFrequencyRX).substring(0, 1) + "." + String(CurrentFrequencyRX).substring(1, 4) + "." + String(CurrentFrequencyRX).substring(4, 7));
           }
+          FrCheck();
           break;
         case 8:
           //The following block of code is done to avoid some flickering while changing the frequentcy on the tft screen
@@ -1921,6 +1865,7 @@ void ReadEncoder() {  //Unified ReadEncoder function
           } else {
             UpperPrintTextCentered(0, 320, 75, String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7));
           }
+          FrCheck();
           break;
         case 9:
           //The following block of code is done to avoid some flickering while changing the frequentcy on the tft screen
@@ -1930,6 +1875,7 @@ void ReadEncoder() {  //Unified ReadEncoder function
           } else {
             UpperPrintTextCentered(0, 320, 75, String(Frequency).substring(0, 1) + "." + String(Frequency).substring(1, 4) + "." + String(Frequency).substring(4, 7));
           }
+          FrCheck();
           break;
         default:
           break;
@@ -2024,7 +1970,6 @@ void ReadEncoder() {  //Unified ReadEncoder function
 }
 
 int ReadContourWidth() {
-
   char a;
   String Result;
 
@@ -2056,7 +2001,6 @@ void SetContourWidth(int ContourWidth) {
 }
 
 int ReadContourLevel() {
-
   char a;
   String Result;
 
@@ -2165,6 +2109,10 @@ int NormalizePO(int x) {
 }
 
 void SecondCoreTaskCode(void* pvParameters) {
+  // In this core I execute all the tasks that are time sensitive or independent
+  // The secondd releay is an independent task
+  // The short/long press of the main button is time sensitive (to give good responsiveness)
+
   do {
     if (millis() > SecondRelayActivationMillis && millis() < SecondRelayDeactivationMillis && RLY1 == false) {
       Relay.SET_RLY1(I2C_REL_ADD, HIGH);
@@ -2174,11 +2122,25 @@ void SecondCoreTaskCode(void* pvParameters) {
       Relay.SET_RLY1(I2C_REL_ADD, LOW);
       RLY1 = false;
     }
-    if (millis() > SecondRelayDeactivationMillis) {
-      vTaskSuspend(SecondCoreTask);  // Suspend the second core task
-    }
     delay(CommandDelay);
-    //Serial.println("Second core running");
+
+    //Here we see if the Tune button is shortpressed and need to tune, or longpressed and open the sytem menu.
+    if (digitalRead(Button) == 0 && ButtonShortPress == false && ButtonLongPress == false) {  //if the tune button is pressed and not short or long flags set (meaning the main code doesn't run a button related task)
+      ButtonPressTime = millis();                                                             //Mark the time that the button was pressed...
+
+      while (ButtonPressTime + 1000 > millis()) {  //...and we wait for 1 sec...
+        if (digitalRead(Button) != 0) {
+          delay(CommandDelay);  // Buffer to avoid switch bouncing
+          break;
+        }
+      }
+      if (digitalRead(Button) == 0) {  // ...and if the button is still pressed we set the ButtonLongPress to true in order to open the system menu
+        ButtonLongPress = true;
+      } else {  // ...otherwise,  we set the ButtonShortPress to true in order to activate tuning.
+        ButtonShortPress = true;
+      }
+    }
+
   } while (true);
 }
 
@@ -2194,9 +2156,6 @@ int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = t
 
   for (int i = 0; i < count; i++) {
     Lines[i] = va_arg(args, const char*);
-    Serial.print(i);
-    Serial.print(" ");
-    Serial.println(Lines[i]);
   }
 
   bool Redraw = true;
@@ -2212,11 +2171,7 @@ int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = t
   TFT_FOREGROUND = TFT_YELLOW;
   TFT_BACKGROUND = TFT_EBONY;
 
-  Serial.println("Clear Upper Display Before");
-
   UpperClearDisplay();
-
-  Serial.println("Clear Upper Display After");
 
   start = millis();
 
@@ -2244,7 +2199,6 @@ int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = t
       TFT_BACKGROUND = TFT_EBONY;
       //Upper.drawRect(100, 117, 320 - 2 * 100, 1, TFT_YELLOW);
       Upper.pushSprite(0, 8);
-      Serial.println("Menu draw");
       Redraw = false;
     }
 
@@ -2361,7 +2315,6 @@ int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = t
       encoder_position4 = 0;
 
       va_end(args);
-      Serial.println(MenuTopPosition + HighlightedMenu - 1);
       return MenuTopPosition + HighlightedMenu - 1;
     }
     PrintStatus();
@@ -2379,7 +2332,6 @@ int DisplayMenu(int count, int HighlightedMenu, int Control, ...) {  //Count = t
 
   Message = 0;
   va_end(args);
-  Serial.println(0);
   return 0;
 }
 
@@ -2391,9 +2343,6 @@ void DisplayURC(void) {
   URC.setFreeFont(&FreeSansBold12pt7b);
   URC.setTextColor(TFT_WHITE, TFT_EBONY);
   URC.setTextDatum(BR_DATUM);
-
-
-  //Serial.println(ExtendedParameter4);
 
   switch (ExtendedParameter4) {
     case 1:
@@ -2468,9 +2417,6 @@ void DisplayLRC(void) {
   LRC.setTextColor(TFT_WHITE, TFT_EBONY);
   LRC.setTextDatum(BR_DATUM);
 
-
-  //Serial.println(ExtendedParameter4);
-
   switch (ExtendedParameter3) {
     case 1:
       Result = "SQL " + String(ReadSQL());
@@ -2544,9 +2490,6 @@ void DisplayULC(void) {
   ULC.setTextColor(TFT_WHITE, TFT_EBONY);
   ULC.setTextDatum(BL_DATUM);
 
-
-  //Serial.println(ExtendedParameter4);
-
   switch (ExtendedParameter1) {
     case 1:
       Result = "SQL " + String(ReadSQL());
@@ -2619,9 +2562,6 @@ void DisplayLLC(void) {
   LLC.setFreeFont(&FreeSansBold12pt7b);
   LLC.setTextColor(TFT_WHITE, TFT_EBONY);
   LLC.setTextDatum(BL_DATUM);
-
-
-  //Serial.println(ExtendedParameter4);
 
   switch (ExtendedParameter2) {
     case 1:
@@ -2726,9 +2666,7 @@ void FrCheck(void) {  //Check if the current TX Frequency conflicts with the ban
     if ((CurrentFrequencyTXStart >= ConflictFrStart && CurrentFrequencyTXStart <= ConflictFrEnd) || (CurrentFrequencyTXEnd <= ConflictFrEnd && CurrentFrequencyTXEnd >= ConflictFrStart)) {
       Upper.setFreeFont(&FreeSansBold12pt7b);
       UpperPrintTextCentered(0, 320, 110, "Used by : " + ConflictText[i]);
-      //Serial.print("Found ");
-      //Serial.println(i);
-      i == 33;
+      i = 33;
       Found = true;
     };
   }
