@@ -65,7 +65,7 @@ TFT_eSprite URC = TFT_eSprite(&tft);    //Define a sprite for the upper right pa
 TFT_eSprite LLC = TFT_eSprite(&tft);    //Define a sprite for the lower left part of the display
 TFT_eSprite LRC = TFT_eSprite(&tft);    //Define a sprite for the lower right part of the display
 
-String Build = "260805";
+String Build = "260807";
 
 bool Tuned = false;  // True if in a specific range around the last tuned frequency, false if otherwise
 
@@ -121,11 +121,19 @@ int ExtendedParameter4;
 
 //Conflicting Frequencies
 //The second parameter is the modulation type: 1=LSB, 2=USB, 8=Data-L, C=Data-U, etc
-long ConflictFr[33][2] = {
-  { 7195000, 1 },
+long ConflictFr[41][2] = {
+  { 3760000, 1 },  //Emergency CoA
+  { 7060000, 1 },
+  { 7110000, 1 },
+  { 14300000, 2 },
+  { 18160000, 2 },
+  { 21360000, 2 },
+  { 24960000, 2 },
+  { 28265000, 2 },
+  { 7195000, 1 },  //Greek Nets
   { 7197000, 1 },
   { 14280000, 2 },
-  { 1840000, 2 },
+  { 1840000, 2 },  //FT8
   { 3573000, 2 },
   { 5357000, 2 },
   { 7074000, 2 },
@@ -136,15 +144,15 @@ long ConflictFr[33][2] = {
   { 24915000, 2 },
   { 28074000, 2 },
   { 50313000, 2 },
-  { 14230000, 2 },
-  { 3690000, 1 },
+  { 14230000, 2 },  //SSTV
+  { 3690000, 1 },   //SSB QRP
   { 7090000, 1 },
   { 14285000, 2 },
   { 18130000, 2 },
   { 21285000, 2 },
   { 24950000, 2 },
   { 28360000, 2 },
-  { 1995000, 2 },
+  { 1995000, 2 },  //VarAC
   { 3595000, 2 },
   { 5355000, 2 },
   { 7105000, 2 },
@@ -158,7 +166,7 @@ long ConflictFr[33][2] = {
 
 };
 
-String ConflictText[33] = { "Greek Net", "Greek Net", "Greek Net", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "SSTV", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC" };
+String ConflictText[41] = { "Emergency CoA", "Emergency CoA 1", "Emerg. CoA 2&3", "Maritime & Emerg.", "Emergency CoA", "Emergency CoA", "Emergency CoA", "Emergency CoA", "Greek Net", "Greek Net", "Greek Net", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "FT8", "SSTV", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "SSB QRP", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC", "VarAC" };
 
 bool ButtonShortPress = false;  // Checks in the tune button has been pressed for a long time (>1 sec?)
 bool ButtonLongPress = false;
@@ -2653,7 +2661,7 @@ void FrCheck(void) {  //Check if the current TX Frequency conflicts with the ban
 
 
   Found = false;
-  for (i = 0; i < 33; i++) {
+  for (i = 0; i < 41; i++) {
 
     if (ConflictFr[i][1] == 1) {
       ConflictFrStart = ConflictFr[i][0] - 2999;
@@ -2666,7 +2674,7 @@ void FrCheck(void) {  //Check if the current TX Frequency conflicts with the ban
     if ((CurrentFrequencyTXStart >= ConflictFrStart && CurrentFrequencyTXStart <= ConflictFrEnd) || (CurrentFrequencyTXEnd <= ConflictFrEnd && CurrentFrequencyTXEnd >= ConflictFrStart)) {
       Upper.setFreeFont(&FreeSansBold12pt7b);
       UpperPrintTextCentered(0, 320, 110, "Used by : " + ConflictText[i]);
-      i = 33;
+      i = 41;
       Found = true;
     };
   }
